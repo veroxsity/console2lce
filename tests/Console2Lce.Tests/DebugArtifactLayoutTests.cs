@@ -10,6 +10,7 @@ public sealed class DebugArtifactLayoutTests
 
         Assert.Equal(Path.Combine(layout.OutputDirectory, "stfs-files.json"), layout.StfsFilesJsonPath);
         Assert.Equal(Path.Combine(layout.OutputDirectory, "savegame.dat"), layout.SavegameDatPath);
+        Assert.Equal(Path.Combine(layout.OutputDirectory, "savegame-probe.json"), layout.SavegameProbeJsonPath);
         Assert.Equal(Path.Combine(layout.OutputDirectory, "savegame.decompressed.bin"), layout.SavegameDecompressedPath);
         Assert.Equal(Path.Combine(layout.OutputDirectory, "archive-index.json"), layout.ArchiveIndexJsonPath);
     }

@@ -45,7 +45,7 @@ internal static class CliCommandRouter
         Console.WriteLine($"Output:  {Path.GetFullPath(options.OutputPath!)}");
         Console.WriteLine();
         Console.WriteLine("Not implemented yet.");
-        Console.WriteLine("Next milestone is header-driven STFS file extraction.");
+        Console.WriteLine("Current milestone is savegame.dat decompression and inner archive parsing.");
         return 2;
     }
 }
