@@ -1,0 +1,5 @@
+bin/
+obj/
+TestResults/
+.vs/
+.local_testing/

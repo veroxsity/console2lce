@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Console2Lce</RootNamespace>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <InformationalVersion>0.1.0</InformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Console2Lce.Cli\**\*.cs" />
+    <Compile Remove="tests\**\*.cs" />
+    <EmbeddedResource Remove="Console2Lce.Cli\**\*" />
+    <EmbeddedResource Remove="tests\**\*" />
+    <None Remove="Console2Lce.Cli\**\*" />
+    <None Remove="tests\**\*" />
+  </ItemGroup>
+
+</Project>
