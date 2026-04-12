@@ -21,7 +21,7 @@ internal static class CliCommandRouter
         return options.Command switch
         {
             CliCommand.Inspect => InspectCommandRunner.Run(options),
-            CliCommand.Extract => RunNotImplemented(options),
+            CliCommand.Extract => ExtractCommandRunner.Run(options),
             CliCommand.Convert => RunNotImplemented(options),
             _ => 1,
         };

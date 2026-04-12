@@ -1,4 +1,5 @@
 using Console2Lce;
+using System.Text.Json;
 
 namespace Console2Lce.Cli;
 
@@ -10,22 +11,28 @@ internal static class InspectCommandRunner
         string outputPath = Path.GetFullPath(options.OutputPath!);
 
         byte[] packageBytes = File.ReadAllBytes(inputPath);
-        StfsPackageType packageType = StfsPackageMagicReader.ReadPackageType(packageBytes);
-        IReadOnlyList<StfsDirectoryEntry> entries = StfsDirectoryScanner.ScanHeuristicEntries(packageBytes);
+        StfsPackageMetadata metadata = StfsPackageDescriptorReader.Read(packageBytes);
+        var reader = new StfsReader();
+        IReadOnlyList<StfsFileEntry> entries = reader.EnumerateEntries(packageBytes);
 
-        Console.WriteLine($"Package: {packageType}");
+        Directory.CreateDirectory(outputPath);
+        string jsonPath = Path.Combine(outputPath, "stfs-files.json");
+        File.WriteAllText(jsonPath, JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true }));
+
+        Console.WriteLine($"Package: {metadata.PackageType}");
         Console.WriteLine($"Input:   {inputPath}");
         Console.WriteLine($"Output:  {outputPath}");
+        Console.WriteLine($"Header:  0x{metadata.HeaderSize:X} (aligned 0x{metadata.HeaderAlignedSize:X})");
+        Console.WriteLine($"FT blk:  0x{metadata.FileTableBlockNumber:X} x {metadata.FileTableBlockCount}");
         Console.WriteLine($"Entries: {entries.Count}");
 
-        foreach (StfsDirectoryEntry entry in entries)
+        foreach (StfsFileEntry entry in entries)
         {
-            Console.WriteLine($"- {entry.Name} @ 0x{entry.EntryOffset:X} size~{entry.FileSizeCandidate}");
+            Console.WriteLine($"- {entry.Name} size={entry.Size} start=0x{entry.StartingBlock:X}");
         }
 
         Console.WriteLine();
-        Console.WriteLine("This is a heuristic STFS directory probe based on the current sample.");
-        Console.WriteLine("Next step is replacing it with a header-driven reader and real file block extraction.");
+        Console.WriteLine($"Wrote {jsonPath}");
         return 0;
     }
 }
