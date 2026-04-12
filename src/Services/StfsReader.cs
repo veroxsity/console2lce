@@ -28,6 +28,11 @@ public sealed class StfsReader : IStfsReader
 
     public byte[] ReadFile(ReadOnlyMemory<byte> packageBytes, string entryName)
     {
+        return ReadFileWithContext(packageBytes, entryName).Bytes;
+    }
+
+    public StfsExtractedFile ReadFileWithContext(ReadOnlyMemory<byte> packageBytes, string entryName)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(entryName);
 
         ReadOnlySpan<byte> bytes = packageBytes.Span;
@@ -44,7 +49,14 @@ public sealed class StfsReader : IStfsReader
             throw new SavegameDatNotFoundException();
         }
 
-        return ReadFileBytes(bytes, metadata, entry);
+        int firstBlockOffset = ComputeDataBlockOffset(metadata, entry.StartingBlock);
+        byte[] fileBytes = ReadFileBytes(bytes, metadata, entry);
+        return new StfsExtractedFile(
+            ResolvePath(entry, entries),
+            entry.FileSize,
+            entry.StartingBlock,
+            firstBlockOffset,
+            fileBytes);
     }
 
     private static IReadOnlyList<StfsFileListingEntry> ParseFileListingEntries(ReadOnlySpan<byte> packageBytes, StfsPackageMetadata metadata)

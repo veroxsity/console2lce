@@ -4,51 +4,85 @@ namespace Console2Lce;
 
 public static class SavegameEnvelopeReader
 {
-    public static IReadOnlyList<SavegameEnvelopeCandidate> ReadCandidates(ReadOnlySpan<byte> savegameBytes)
+    public static IReadOnlyList<SavegameEnvelopeCandidate> ReadCandidates(
+        ReadOnlySpan<byte> savegameBytes,
+        ReadOnlySpan<byte> leadingPrefixBytes = default)
     {
-        if (savegameBytes.Length < 8)
+        if (savegameBytes.Length < 8 && (leadingPrefixBytes.Length != 4 || savegameBytes.Length < 4))
         {
             return Array.Empty<SavegameEnvelopeCandidate>();
         }
 
-        int payloadLength = savegameBytes.Length - 8;
-        int leadingPayloadLength = savegameBytes.Length - 4;
+        var candidates = new List<SavegameEnvelopeCandidate>();
+        if (savegameBytes.Length >= 8)
+        {
+            int payloadLength = savegameBytes.Length - 8;
 
-        return
-        [
-            CreateCandidate(
+            candidates.Add(CreateCandidate(
                 name: "HeaderAt0LittleEndian",
                 description: "Interpret the first 8 bytes as the normal save envelope using little-endian integers.",
                 endianness: "little",
                 compressionFlag: BinaryPrimitives.ReadInt32LittleEndian(savegameBytes[..4]),
                 expectedDecompressedSize: BinaryPrimitives.ReadInt32LittleEndian(savegameBytes.Slice(4, 4)),
                 payloadOffset: 8,
-                payloadLength: payloadLength),
-            CreateCandidate(
+                payloadLength: payloadLength));
+            candidates.Add(CreateCandidate(
                 name: "HeaderAt0BigEndian",
                 description: "Interpret the first 8 bytes as the normal save envelope using big-endian integers.",
                 endianness: "big",
                 compressionFlag: BinaryPrimitives.ReadInt32BigEndian(savegameBytes[..4]),
                 expectedDecompressedSize: BinaryPrimitives.ReadInt32BigEndian(savegameBytes.Slice(4, 4)),
                 payloadOffset: 8,
-                payloadLength: payloadLength),
-            CreateCandidate(
+                payloadLength: payloadLength));
+        }
+
+        if (leadingPrefixBytes.Length == 4 && savegameBytes.Length >= 4)
+        {
+            byte[] reconstructedHeader = new byte[8];
+            leadingPrefixBytes.CopyTo(reconstructedHeader.AsSpan(0, 4));
+            savegameBytes[..4].CopyTo(reconstructedHeader.AsSpan(4, 4));
+
+            candidates.Add(CreateCandidate(
+                name: "RecoveredPrefixHeaderLittleEndian",
+                description: "Heuristic: reconstruct the 8-byte save envelope by prepending the 4 bytes that immediately precede the computed first file block.",
+                endianness: "little",
+                compressionFlag: BinaryPrimitives.ReadInt32LittleEndian(reconstructedHeader.AsSpan(0, 4)),
+                expectedDecompressedSize: BinaryPrimitives.ReadInt32LittleEndian(reconstructedHeader.AsSpan(4, 4)),
+                payloadOffset: 4,
+                payloadLength: savegameBytes.Length - 4));
+            candidates.Add(CreateCandidate(
+                name: "RecoveredPrefixHeaderBigEndian",
+                description: "Heuristic: reconstruct the 8-byte save envelope by prepending the 4 bytes that immediately precede the computed first file block.",
+                endianness: "big",
+                compressionFlag: BinaryPrimitives.ReadInt32BigEndian(reconstructedHeader.AsSpan(0, 4)),
+                expectedDecompressedSize: BinaryPrimitives.ReadInt32BigEndian(reconstructedHeader.AsSpan(4, 4)),
+                payloadOffset: 4,
+                payloadLength: savegameBytes.Length - 4));
+        }
+
+        if (savegameBytes.Length >= 4)
+        {
+            int leadingPayloadLength = savegameBytes.Length - 4;
+
+            candidates.Add(CreateCandidate(
                 name: "SyntheticMissingZeroFlagLittleEndian",
                 description: "Heuristic: assume the extracted file is missing a leading zero compression flag and the current first 4 bytes are the decompressed size in little-endian form.",
                 endianness: "little",
                 compressionFlag: 0,
                 expectedDecompressedSize: BinaryPrimitives.ReadInt32LittleEndian(savegameBytes[..4]),
                 payloadOffset: 4,
-                payloadLength: leadingPayloadLength),
-            CreateCandidate(
+                payloadLength: leadingPayloadLength));
+            candidates.Add(CreateCandidate(
                 name: "SyntheticMissingZeroFlagBigEndian",
                 description: "Heuristic: assume the extracted file is missing a leading zero compression flag and the current first 4 bytes are the decompressed size in big-endian form.",
                 endianness: "big",
                 compressionFlag: 0,
                 expectedDecompressedSize: BinaryPrimitives.ReadInt32BigEndian(savegameBytes[..4]),
                 payloadOffset: 4,
-                payloadLength: leadingPayloadLength),
-        ];
+                payloadLength: leadingPayloadLength));
+        }
+
+        return candidates;
     }
 
     private static SavegameEnvelopeCandidate CreateCandidate(

@@ -20,4 +20,16 @@ public sealed class SavegameEnvelopeReaderTests
         Assert.Equal("SyntheticMissingZeroFlagBigEndian", candidates[3].Name);
         Assert.Equal(4, candidates[3].PayloadOffset);
     }
+
+    [Fact]
+    public void ReadCandidates_IncludesRecoveredPrefixCandidates()
+    {
+        byte[] bytes = new byte[8];
+        BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(0, 4), 0x1234);
+        byte[] prefix = [0, 0, 0, 0];
+
+        IReadOnlyList<SavegameEnvelopeCandidate> candidates = SavegameEnvelopeReader.ReadCandidates(bytes, prefix);
+
+        Assert.Contains(candidates, candidate => candidate.Name == "RecoveredPrefixHeaderBigEndian" && candidate.IsPlausible);
+    }
 }

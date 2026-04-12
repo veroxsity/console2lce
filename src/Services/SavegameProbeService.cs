@@ -7,17 +7,34 @@ public sealed class SavegameProbeService
 {
     private const int ArchiveHeaderSize = 8;
 
-    public SavegameProbeResult Probe(ReadOnlyMemory<byte> savegameBytes)
+    public SavegameProbeResult Probe(
+        ReadOnlyMemory<byte> savegameBytes,
+        ReadOnlyMemory<byte> leadingPrefixBytes = default)
     {
-        IReadOnlyList<SavegameEnvelopeCandidate> envelopes = SavegameEnvelopeReader.ReadCandidates(savegameBytes.Span);
+        IReadOnlyList<SavegameEnvelopeCandidate> envelopes = SavegameEnvelopeReader.ReadCandidates(savegameBytes.Span, leadingPrefixBytes.Span);
         var findings = new List<string>();
         var attempts = new List<SavegameProbeAttempt>();
         byte[]? bestOutput = null;
         SavegameProbeAttempt? bestAttempt = null;
+        string? leadingPrefixHex = leadingPrefixBytes.IsEmpty ? null : Convert.ToHexString(leadingPrefixBytes.Span);
 
         if (envelopes.Count == 0)
         {
             findings.Add("savegame.dat is smaller than the expected 8-byte save envelope.");
+        }
+        else if (!leadingPrefixBytes.IsEmpty)
+        {
+            findings.Add($"Probe included {leadingPrefixBytes.Length} prefix byte(s) recovered immediately before the computed first data block: {leadingPrefixHex}.");
+
+            SavegameEnvelopeCandidate? recoveredBigEndian = envelopes.FirstOrDefault(candidate =>
+                candidate.Name == "RecoveredPrefixHeaderBigEndian"
+                && candidate.IsPlausible);
+
+            if (recoveredBigEndian is not null)
+            {
+                findings.Add(
+                    $"RecoveredPrefixHeaderBigEndian is plausible with compressionFlag=0 and expectedDecompressedSize={recoveredBigEndian.ExpectedDecompressedSize}, which matches the known big-endian Xbox 360 save platform.");
+            }
         }
 
         foreach (SavegameEnvelopeCandidate envelope in envelopes)
@@ -53,6 +70,7 @@ public sealed class SavegameProbeService
 
         SavegameProbeReport report = new(
             savegameBytes.Length,
+            leadingPrefixHex,
             findings,
             envelopes,
             attempts,

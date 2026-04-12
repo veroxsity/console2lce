@@ -15,13 +15,16 @@ internal static class InspectCommandRunner
         StfsPackageMetadata metadata = StfsPackageDescriptorReader.Read(packageBytes);
         var reader = new StfsReader();
         IReadOnlyList<StfsFileEntry> entries = reader.EnumerateEntries(packageBytes);
-        byte[] savegameBytes = reader.ReadFile(packageBytes, "savegame.dat");
+        StfsExtractedFile savegame = reader.ReadFileWithContext(packageBytes, "savegame.dat");
+        byte[] leadingPrefixBytes = savegame.FirstBlockOffset >= 4
+            ? packageBytes.AsSpan(savegame.FirstBlockOffset - 4, 4).ToArray()
+            : Array.Empty<byte>();
         var probeService = new SavegameProbeService();
-        SavegameProbeResult probeResult = probeService.Probe(savegameBytes);
+        SavegameProbeResult probeResult = probeService.Probe(savegame.Bytes, leadingPrefixBytes);
 
         Directory.CreateDirectory(layout.OutputDirectory);
         File.WriteAllText(layout.StfsFilesJsonPath, JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true }));
-        File.WriteAllBytes(layout.SavegameDatPath, savegameBytes);
+        File.WriteAllBytes(layout.SavegameDatPath, savegame.Bytes);
         File.WriteAllText(layout.SavegameProbeJsonPath, JsonSerializer.Serialize(probeResult.Report, new JsonSerializerOptions { WriteIndented = true }));
 
         if (probeResult.DecompressedBytes is not null)
@@ -42,7 +45,12 @@ internal static class InspectCommandRunner
         }
 
         Console.WriteLine();
-        Console.WriteLine($"savegame.dat: {savegameBytes.Length} bytes");
+        Console.WriteLine($"savegame.dat: {savegame.Bytes.Length} bytes");
+        Console.WriteLine($"First block:  0x{savegame.FirstBlockOffset:X}");
+        if (probeResult.Report.LeadingPrefixHex is not null)
+        {
+            Console.WriteLine($"Prefix:       {probeResult.Report.LeadingPrefixHex}");
+        }
         Console.WriteLine($"Probe:        {(probeResult.Report.HasSuccessfulDecompression ? "success" : "no match")}");
 
         if (probeResult.Report.HasSuccessfulDecompression)

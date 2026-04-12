@@ -41,7 +41,8 @@ Working now:
 Current blocker:
 
 - the real Xbox 360 sample does not match the Win64 zlib path
-- the probe strongly suggests the remaining unknown is the Xbox-native `LZXRLE` / `XMemDecompress` path, with a likely header-offset quirk still to resolve before the inner archive can be parsed reliably
+- the current sample now shows a recovered `00000000` prefix immediately before the computed first data block and a plausible big-endian save envelope, which is consistent with Xbox 360 save endianness
+- the remaining unknown is the Xbox-native `LZXRLE` / `XMemDecompress` path, plus whether the missing 4-byte prefix should be treated as a real extraction adjustment or only as a package-level recovery heuristic
 
 ## Roadmap
 
@@ -88,9 +89,13 @@ Against the current local sample in `.local_testing/`:
 - `savegame.dat` is found and extracted successfully
 - extracted size is `8,748,032` bytes
 - the Phase 2 probe currently reports no valid decompression match
-- the most plausible envelope interpretation so far is a synthetic big-endian size read, which supports the theory that either:
-  - the STFS extraction is still offset by 4 bytes at the start of the file
-  - or the Xbox 360 save path needs the native `XMem` decoder before the archive header will make sense
+- the probe now records:
+  - computed first data block offset: `0x227000`
+  - recovered prefix immediately before that block: `00000000`
+  - a plausible recovered big-endian save envelope, consistent with Xbox 360 save endianness
+- current evidence supports the theory that either:
+  - the STFS extraction is still missing the first 4 bytes of the file payload
+  - or the package-level prefix is only a recovery hint and the real remaining requirement is the native `XMem` decoder before the archive header will make sense
 
 ## Notes
 
