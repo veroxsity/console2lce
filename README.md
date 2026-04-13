@@ -40,12 +40,18 @@ Working now:
 - direct `savegame.dat` input support
 - archive parsing for the decoded 4J world container
 - extraction of the inner world tree into normal files and folders
+- source-backed Xbox 360 region file parsing for `.mcr` metadata:
+  - chunk table offsets
+  - timestamps
+  - per-chunk stored length and decompressed length
+  - RLE flag detection
 - `inspect` debug output for:
   - `stfs-files.json`
   - `savegame.dat`
   - `savegame-probe.json`
   - `savegame.decompressed.bin`
   - `archive-index.json`
+  - `region-analysis.json`
   - extracted inner files under `archive/`
 
 Still in progress:
@@ -77,6 +83,7 @@ Writes:
 - `savegame-probe.json`
 - `savegame.decompressed.bin` when decoding succeeds
 - `archive-index.json` when decoding succeeds
+- `region-analysis.json` when decoding succeeds
 - extracted inner files under `archive/` when decoding succeeds
 
 ### `extract`
@@ -113,6 +120,7 @@ Against the current local sample in `.local_testing/`:
   - `data/mapDataMappings.dat`
   - two player `.dat` files
   - Overworld and Nether `.mcr` region files
+- `inspect` now also parses the extracted `.mcr` metadata so chunk tables and Xbox chunk headers can be inspected without guessing
 
 ## Notes
 

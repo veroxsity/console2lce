@@ -25,7 +25,8 @@ internal static class InspectCommandRunner
 
         if (decodeResult.DecompressedBytes is not null)
         {
-            ArchiveArtifactWriter.Write(layout, decodeResult.DecompressedBytes);
+            Minecraft360Archive archive = ArchiveArtifactWriter.Write(layout, decodeResult.DecompressedBytes);
+            WriteRegionAnalysis(layout, archive);
         }
 
         Console.WriteLine($"Input:   {inputPath}");
@@ -64,6 +65,7 @@ internal static class InspectCommandRunner
             Console.WriteLine($"Wrote         {layout.SavegameDecompressedPath}");
             Console.WriteLine($"Wrote         {layout.ArchiveIndexJsonPath}");
             Console.WriteLine($"Wrote         {layout.ArchiveDirectoryPath}");
+            Console.WriteLine($"Wrote         {layout.RegionAnalysisJsonPath}");
         }
         else
         {
@@ -83,5 +85,13 @@ internal static class InspectCommandRunner
         Console.WriteLine($"Wrote {layout.SavegameDatPath}");
         Console.WriteLine($"Wrote {layout.SavegameProbeJsonPath}");
         return 0;
+    }
+
+    private static void WriteRegionAnalysis(DebugArtifactLayout layout, Minecraft360Archive archive)
+    {
+        IReadOnlyList<MinecraftXbox360Region> regionAnalysis = MinecraftXbox360RegionAnalyzer.Analyze(archive);
+        File.WriteAllText(
+            layout.RegionAnalysisJsonPath,
+            JsonSerializer.Serialize(regionAnalysis, new JsonSerializerOptions { WriteIndented = true }));
     }
 }
