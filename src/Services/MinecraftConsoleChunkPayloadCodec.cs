@@ -58,7 +58,8 @@ public static class MinecraftConsoleChunkPayloadCodec
 
         if (!IsCompressedChunkStorage(payload))
         {
-            return false;
+            return LooksLikeMccCompactNbt(payload)
+                && MccCompactNbtChunkPayloadParser.TryParseToLegacyNbt(payload, out legacyNbt);
         }
 
         try
@@ -113,8 +114,19 @@ public static class MinecraftConsoleChunkPayloadCodec
         if (LooksLikeMccCompactNbt(payload))
         {
             payloadKind = "MccCompactNbt";
-            chunkX = null;
-            chunkZ = null;
+
+            if (MccCompactNbtChunkPayloadParser.TryParseToLegacyNbt(payload, out byte[] legacyNbt)
+                && TryReadLegacyLevel(legacyNbt, out NbtCompound? parsedLevel, out _))
+            {
+                chunkX = parsedLevel.Get<NbtInt>("xPos")?.Value;
+                chunkZ = parsedLevel.Get<NbtInt>("zPos")?.Value;
+            }
+            else
+            {
+                chunkX = null;
+                chunkZ = null;
+            }
+
             hasLevelWrapper = true;
             return true;
         }
