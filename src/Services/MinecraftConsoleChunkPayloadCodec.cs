@@ -76,6 +76,35 @@ public static class MinecraftConsoleChunkPayloadCodec
         }
     }
 
+    public static byte[] ForceChunkCoordinates(byte[] payload, int expectedChunkX, int expectedChunkZ)
+    {
+        if (TryReadLegacyLevel(payload, out NbtCompound? legacyLevel, out _))
+        {
+            UpsertTag(legacyLevel, new NbtInt("xPos", expectedChunkX));
+            UpsertTag(legacyLevel, new NbtInt("zPos", expectedChunkZ));
+            return EncodeLegacyNbt(legacyLevel);
+        }
+
+        if (IsCompressedChunkStorage(payload))
+        {
+            byte[] patched = (byte[])payload.Clone();
+            BinaryPrimitives.WriteInt32BigEndian(patched.AsSpan(2, 4), expectedChunkX);
+            BinaryPrimitives.WriteInt32BigEndian(patched.AsSpan(6, 4), expectedChunkZ);
+            return patched;
+        }
+
+        if (LooksLikeMccCompactNbt(payload)
+            && MccCompactNbtChunkPayloadParser.TryParseToLegacyNbt(payload, out byte[] legacyNbt)
+            && TryReadLegacyLevel(legacyNbt, out NbtCompound? level, out _))
+        {
+            UpsertTag(level, new NbtInt("xPos", expectedChunkX));
+            UpsertTag(level, new NbtInt("zPos", expectedChunkZ));
+            return EncodeLegacyNbt(level);
+        }
+
+        return Array.Empty<byte>();
+    }
+
     public static string GetPayloadKind(byte[] payload)
     {
         if (TryReadPayloadInfo(payload, out string payloadKind, out _, out _, out _))
@@ -148,6 +177,22 @@ public static class MinecraftConsoleChunkPayloadCodec
         using var ms = new MemoryStream();
         new NbtFile(root).SaveToStream(ms, NbtCompression.None);
         return ms.ToArray();
+    }
+
+    private static void UpsertTag(NbtCompound compound, NbtTag tag)
+    {
+        if (string.IsNullOrEmpty(tag.Name))
+        {
+            throw new InvalidDataException("Cannot upsert an unnamed NBT tag.");
+        }
+
+        if (compound.Contains(tag.Name))
+        {
+            compound[tag.Name] = tag;
+            return;
+        }
+
+        compound.Add(tag);
     }
 
     private static bool TryReadLegacyLevel(byte[] payload, out NbtCompound level, out bool hasLevelWrapper)

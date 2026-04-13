@@ -99,6 +99,36 @@ public sealed class MinecraftConsoleChunkPayloadCodecTests
         Assert.True(hasLevelWrapper);
     }
 
+    [Fact]
+    public void ForceChunkCoordinates_PatchesLegacyNbtCoordinates()
+    {
+        byte[] payload = BuildLegacyChunkNbt(1, 2);
+
+        byte[] patched = MinecraftConsoleChunkPayloadCodec.ForceChunkCoordinates(payload, -3, 11);
+
+        Assert.NotEmpty(patched);
+        bool success = MinecraftConsoleChunkPayloadCodec.TryReadChunkCoordinates(patched, out int chunkX, out int chunkZ, out bool hasLevelWrapper);
+        Assert.True(success);
+        Assert.Equal(-3, chunkX);
+        Assert.Equal(11, chunkZ);
+        Assert.True(hasLevelWrapper);
+    }
+
+    [Fact]
+    public void ForceChunkCoordinates_PatchesMccCompactCoordinatesViaLegacyConversion()
+    {
+        byte[] payload = BuildMccCompactPayload(chunkX: 3, chunkZ: 9);
+
+        byte[] patched = MinecraftConsoleChunkPayloadCodec.ForceChunkCoordinates(payload, -9, 0);
+
+        Assert.NotEmpty(patched);
+        bool success = MinecraftConsoleChunkPayloadCodec.TryReadChunkCoordinates(patched, out int chunkX, out int chunkZ, out bool hasLevelWrapper);
+        Assert.True(success);
+        Assert.Equal(-9, chunkX);
+        Assert.Equal(0, chunkZ);
+        Assert.True(hasLevelWrapper);
+    }
+
     private static byte[] BuildLegacyChunkNbt(int chunkX, int chunkZ)
     {
         var root = new NbtCompound(string.Empty)
