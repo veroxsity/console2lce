@@ -441,31 +441,62 @@ public sealed class MccCompactNbtChunkPayloadParser
     {
         while (_offset < _payload.Length)
         {
-            NbtTagType type = (NbtTagType)ReadByte();
+            NbtTagType type;
+            try
+            {
+                type = (NbtTagType)ReadByte();
+            }
+            catch (EndOfStreamException)
+            {
+                // Some compact payload tails are truncated/non-canonical after core chunk tags.
+                // Keep already-parsed fields instead of forcing fallback reconstruction.
+                return;
+            }
+
             if (type == NbtTagType.End)
             {
                 // End of Level compound. Root end may still exist, which we ignore.
                 return;
             }
 
-            string name = ReadString();
+            string name;
+            try
+            {
+                name = ReadString();
+            }
+            catch (EndOfStreamException)
+            {
+                return;
+            }
 
             NbtTag value;
-            if (type == NbtTagType.ByteArray && string.Equals(name, "Blocks", StringComparison.Ordinal))
+            try
             {
-                value = new NbtByteArray(name, ReadCompactOrRawByteArray(name, ExpectedBlocksSize));
+                if (type == NbtTagType.ByteArray && string.Equals(name, "Blocks", StringComparison.Ordinal))
+                {
+                    value = new NbtByteArray(name, ReadCompactOrRawByteArray(name, ExpectedBlocksSize));
+                }
+                else if (type == NbtTagType.ByteArray && IsNibbleField(name))
+                {
+                    value = new NbtByteArray(name, ReadCompactOrRawByteArray(name, ExpectedNibbleSize));
+                }
+                else if (type == NbtTagType.ByteArray && string.Equals(name, "HeightMap", StringComparison.Ordinal))
+                {
+                    value = new NbtByteArray(name, ReadCompactOrRawByteArray(name, ExpectedHeightMapSize));
+                }
+                else
+                {
+                    value = ReadTagPayload(type, name);
+                }
             }
-            else if (type == NbtTagType.ByteArray && IsNibbleField(name))
+            catch (EndOfStreamException)
             {
-                value = new NbtByteArray(name, ReadCompactOrRawByteArray(name, ExpectedNibbleSize));
+                return;
             }
-            else if (type == NbtTagType.ByteArray && string.Equals(name, "HeightMap", StringComparison.Ordinal))
+            catch (InvalidDataException)
             {
-                value = new NbtByteArray(name, ReadCompactOrRawByteArray(name, ExpectedHeightMapSize));
-            }
-            else
-            {
-                value = ReadTagPayload(type, name);
+                // Stop on malformed tail tags; caller validates required core arrays exist.
+                return;
             }
 
             if (level.Contains(name))
