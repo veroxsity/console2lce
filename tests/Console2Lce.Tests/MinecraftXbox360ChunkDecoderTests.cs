@@ -34,9 +34,49 @@ public sealed class MinecraftXbox360ChunkDecoderTests
         Assert.Contains(report.Attempts, attempt => attempt.Decoder == "MccXBOXSupport64" && attempt.Success);
     }
 
+    [Fact]
+    public void DecodeSample_DerivesChunkCoordinatesFromRegionNameWhenPayloadOmitsCoords()
+    {
+        byte[] payload = BuildMccCompactShapePayloadWithoutCoordinates();
+        byte[] regionBytes = BuildRegionWithChunk(payload);
+        MinecraftXbox360RegionChunk chunk = new(
+            Index: 23,
+            X: 23,
+            Z: 0,
+            Timestamp: 0,
+            SectorNumber: 2,
+            SectorCount: 1,
+            ChunkOffset: 8192,
+            PayloadOffset: 8200,
+            StoredLength: 12,
+            DecompressedLength: 32768,
+            UsesRleCompression: true);
+
+        var decoder = new MinecraftXbox360ChunkDecoder(new StubExternalChunkDecoder(payload));
+
+        MinecraftXbox360ChunkDecodeReport report = decoder.DecodeSample("r.-1.0.mcr", chunk, regionBytes);
+
+        Assert.True(report.Success);
+        Assert.Equal("MccCompactNbt", report.PayloadKind);
+        Assert.Equal(-9, report.ChunkX);
+        Assert.Equal(0, report.ChunkZ);
+    }
+
     private static byte[] BuildLegacyChunkPayload(int chunkX, int chunkZ)
     {
         return MinecraftConsoleChunkPayloadCodecTestsShim.BuildLegacyChunkNbt(chunkX, chunkZ);
+    }
+
+    private static byte[] BuildMccCompactShapePayloadWithoutCoordinates()
+    {
+        return
+        [
+            0x0A, 0x00, 0x00,
+            0x0A, 0x00, 0x05, (byte)'L', (byte)'e', (byte)'v', (byte)'e', (byte)'l',
+            0x07, 0x00, 0x06, (byte)'B', (byte)'l', (byte)'o', (byte)'c', (byte)'k', (byte)'s',
+            0x00, 0x00, 0x80, 0x00,
+            0x01, 0x02, 0x03, 0x04,
+        ];
     }
 
     private static byte[] BuildRegionWithChunk(byte[] payload)

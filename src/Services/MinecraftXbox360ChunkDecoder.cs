@@ -1,7 +1,13 @@
+using System.Text.RegularExpressions;
+
 namespace Console2Lce;
 
 public sealed class MinecraftXbox360ChunkDecoder
 {
+    private static readonly Regex RegionNamePattern = new(
+        @"r\.(?<x>-?\d+)\.(?<z>-?\d+)\.mcr$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private static ChunkDecoderCandidate? _preferredCandidate;
     private readonly IMinecraftXbox360ChunkExternalDecoder? _externalDecoder;
 
@@ -45,6 +51,7 @@ public sealed class MinecraftXbox360ChunkDecoder
                 }
 
                 _preferredCandidate ??= candidate;
+                (chunkX, chunkZ) = ResolveChunkCoordinates(regionFileName, chunk, chunkX, chunkZ);
                 attempts.Add(new MinecraftXbox360ChunkDecodeAttempt(
                     candidate.Name,
                     true,
@@ -101,6 +108,7 @@ public sealed class MinecraftXbox360ChunkDecoder
                 }
                 else
                 {
+                    (chunkX, chunkZ) = ResolveChunkCoordinates(regionFileName, chunk, chunkX, chunkZ);
                     attempts.Add(new MinecraftXbox360ChunkDecodeAttempt(
                         _externalDecoder.DecoderName,
                         true,
@@ -153,6 +161,47 @@ public sealed class MinecraftXbox360ChunkDecoder
             null,
             null,
             attempts);
+    }
+
+    private static (int? chunkX, int? chunkZ) ResolveChunkCoordinates(
+        string regionFileName,
+        MinecraftXbox360RegionChunk chunk,
+        int? chunkX,
+        int? chunkZ)
+    {
+        if (chunkX is not null && chunkZ is not null)
+        {
+            return (chunkX, chunkZ);
+        }
+
+        if (!TryParseRegionCoordinates(regionFileName, out int regionX, out int regionZ))
+        {
+            return (chunkX, chunkZ);
+        }
+
+        return (regionX * 32 + chunk.X, regionZ * 32 + chunk.Z);
+    }
+
+    private static bool TryParseRegionCoordinates(string regionFileName, out int regionX, out int regionZ)
+    {
+        regionX = 0;
+        regionZ = 0;
+
+        Match match = RegionNamePattern.Match(regionFileName);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        if (!int.TryParse(match.Groups["x"].Value, out regionX)
+            || !int.TryParse(match.Groups["z"].Value, out regionZ))
+        {
+            regionX = 0;
+            regionZ = 0;
+            return false;
+        }
+
+        return true;
     }
 
     private static IEnumerable<ChunkDecoderCandidate> EnumerateCandidates()
