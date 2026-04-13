@@ -26,7 +26,7 @@ internal static class InspectCommandRunner
         if (decodeResult.DecompressedBytes is not null)
         {
             Minecraft360Archive archive = ArchiveArtifactWriter.Write(layout, decodeResult.DecompressedBytes);
-            WriteRegionAnalysis(layout, archive);
+            WriteArchiveAnalysis(layout, archive);
         }
 
         Console.WriteLine($"Input:   {inputPath}");
@@ -66,6 +66,7 @@ internal static class InspectCommandRunner
             Console.WriteLine($"Wrote         {layout.ArchiveIndexJsonPath}");
             Console.WriteLine($"Wrote         {layout.ArchiveDirectoryPath}");
             Console.WriteLine($"Wrote         {layout.RegionAnalysisJsonPath}");
+            Console.WriteLine($"Wrote         {layout.ChunkAnalysisJsonPath}");
         }
         else
         {
@@ -87,11 +88,16 @@ internal static class InspectCommandRunner
         return 0;
     }
 
-    private static void WriteRegionAnalysis(DebugArtifactLayout layout, Minecraft360Archive archive)
+    private static void WriteArchiveAnalysis(DebugArtifactLayout layout, Minecraft360Archive archive)
     {
         IReadOnlyList<MinecraftXbox360Region> regionAnalysis = MinecraftXbox360RegionAnalyzer.Analyze(archive);
         File.WriteAllText(
             layout.RegionAnalysisJsonPath,
             JsonSerializer.Serialize(regionAnalysis, new JsonSerializerOptions { WriteIndented = true }));
+
+        IReadOnlyList<MinecraftXbox360ChunkDecodeReport> chunkAnalysis = MinecraftXbox360ChunkAnalysisService.Analyze(archive);
+        File.WriteAllText(
+            layout.ChunkAnalysisJsonPath,
+            JsonSerializer.Serialize(chunkAnalysis, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

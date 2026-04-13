@@ -15,5 +15,6 @@ public sealed class DebugArtifactLayoutTests
         Assert.Equal(Path.Combine(layout.OutputDirectory, "archive-index.json"), layout.ArchiveIndexJsonPath);
         Assert.Equal(Path.Combine(layout.OutputDirectory, "archive"), layout.ArchiveDirectoryPath);
         Assert.Equal(Path.Combine(layout.OutputDirectory, "region-analysis.json"), layout.RegionAnalysisJsonPath);
+        Assert.Equal(Path.Combine(layout.OutputDirectory, "chunk-analysis.json"), layout.ChunkAnalysisJsonPath);
     }
 }

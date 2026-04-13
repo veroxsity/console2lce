@@ -23,4 +23,6 @@ public sealed class DebugArtifactLayout
     public string ArchiveDirectoryPath => Path.Combine(OutputDirectory, "archive");
 
     public string RegionAnalysisJsonPath => Path.Combine(OutputDirectory, "region-analysis.json");
+
+    public string ChunkAnalysisJsonPath => Path.Combine(OutputDirectory, "chunk-analysis.json");
 }

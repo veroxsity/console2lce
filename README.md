@@ -45,6 +45,11 @@ Working now:
   - timestamps
   - per-chunk stored length and decompressed length
   - RLE flag detection
+- first-pass Xbox chunk decode analysis:
+  - native LZX candidate attempts
+  - optional MCC ToolChest `XBOXSupport64.dll` oracle fallback for chunk payloads
+  - payload-shape detection
+  - sample chunk coordinate extraction per region
 - `inspect` debug output for:
   - `stfs-files.json`
   - `savegame.dat`
@@ -52,12 +57,14 @@ Working now:
   - `savegame.decompressed.bin`
   - `archive-index.json`
   - `region-analysis.json`
+  - `chunk-analysis.json`
   - extracted inner files under `archive/`
 
 Still in progress:
 
 - native decoding is not solved yet
 - the current working decode path uses the external `minecraft.exe` helper shipped with MCC ToolChest when it is available
+- chunk analysis can also use MCC ToolChest's `XBOXSupport64.dll` as an oracle when it is installed, which confirms real region chunks decode to recognizable payloads
 - final LCE save generation is still to come
 
 ## Roadmap
@@ -84,7 +91,9 @@ Writes:
 - `savegame.decompressed.bin` when decoding succeeds
 - `archive-index.json` when decoding succeeds
 - `region-analysis.json` when decoding succeeds
+- `chunk-analysis.json` when decoding succeeds
 - extracted inner files under `archive/` when decoding succeeds
+- `chunk-analysis.json` now records decoded payload lengths so built-in failures can be compared directly against MCC oracle results
 
 ### `extract`
 
@@ -105,6 +114,14 @@ If MCC ToolChest is installed, Console2LCE can use its bundled helper automatica
 - override:
   - `CONSOLE2LCE_MINECRAFT_TOOLKIT_PATH=<full-path-to-minecraft.exe>`
 
+For chunk-level analysis, Console2LCE can also use MCC ToolChest's `XBOXSupport64.dll`:
+
+- default lookup:
+  - `%ProgramFiles(x86)%\MCCToolChest\XBOXSupport64.dll`
+  - `%ProgramFiles%\MCCToolChest\XBOXSupport64.dll`
+- override:
+  - `CONSOLE2LCE_XBOX_SUPPORT_PATH=<full-path-to-XBOXSupport64.dll>`
+
 ## Sample Progress
 
 Against the current local sample in `.local_testing/`:
@@ -121,6 +138,8 @@ Against the current local sample in `.local_testing/`:
   - two player `.dat` files
   - Overworld and Nether `.mcr` region files
 - `inspect` now also parses the extracted `.mcr` metadata so chunk tables and Xbox chunk headers can be inspected without guessing
+- `inspect` now also attempts a first sample chunk decode per region so chunk payload work can be validated against real data
+- on the current sample, MCC ToolChest's chunk decoder resolves sampled region chunks into a recognizable compact NBT-like payload shape, which narrows the remaining built-in decoder work to the Xbox chunk compression step rather than the region/archive model
 
 ## Notes
 
