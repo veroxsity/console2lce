@@ -1,4 +1,3 @@
-using Console2Lce;
 using System.Text.Json;
 
 namespace Console2Lce.Cli;
@@ -11,60 +10,76 @@ internal static class InspectCommandRunner
         string outputPath = Path.GetFullPath(options.OutputPath!);
         var layout = new DebugArtifactLayout(outputPath);
 
-        byte[] packageBytes = File.ReadAllBytes(inputPath);
-        StfsPackageMetadata metadata = StfsPackageDescriptorReader.Read(packageBytes);
-        var reader = new StfsReader();
-        IReadOnlyList<StfsFileEntry> entries = reader.EnumerateEntries(packageBytes);
-        StfsExtractedFile savegame = reader.ReadFileWithContext(packageBytes, "savegame.dat");
-        byte[] leadingPrefixBytes = savegame.FirstBlockOffset >= 4
-            ? packageBytes.AsSpan(savegame.FirstBlockOffset - 4, 4).ToArray()
-            : Array.Empty<byte>();
-        var probeService = new SavegameProbeService();
-        SavegameProbeResult probeResult = probeService.Probe(savegame.Bytes, leadingPrefixBytes);
+        byte[] inputBytes = File.ReadAllBytes(inputPath);
+        SavegameInputData input = SavegameInputReader.Read(inputBytes);
+        SavegameDecodingResult decodeResult = new SavegameDecodeService().Decode(input.SavegameBytes, input.LeadingPrefixBytes);
 
         Directory.CreateDirectory(layout.OutputDirectory);
-        File.WriteAllText(layout.StfsFilesJsonPath, JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true }));
-        File.WriteAllBytes(layout.SavegameDatPath, savegame.Bytes);
-        File.WriteAllText(layout.SavegameProbeJsonPath, JsonSerializer.Serialize(probeResult.Report, new JsonSerializerOptions { WriteIndented = true }));
-
-        if (probeResult.DecompressedBytes is not null)
+        if (input.IsStfsPackage)
         {
-            File.WriteAllBytes(layout.SavegameDecompressedPath, probeResult.DecompressedBytes);
+            File.WriteAllText(layout.StfsFilesJsonPath, JsonSerializer.Serialize(input.Entries, new JsonSerializerOptions { WriteIndented = true }));
         }
 
-        Console.WriteLine($"Package: {metadata.PackageType}");
+        File.WriteAllBytes(layout.SavegameDatPath, input.SavegameBytes);
+        File.WriteAllText(layout.SavegameProbeJsonPath, JsonSerializer.Serialize(decodeResult.ProbeResult.Report, new JsonSerializerOptions { WriteIndented = true }));
+
+        if (decodeResult.DecompressedBytes is not null)
+        {
+            ArchiveArtifactWriter.Write(layout, decodeResult.DecompressedBytes);
+        }
+
         Console.WriteLine($"Input:   {inputPath}");
         Console.WriteLine($"Output:  {layout.OutputDirectory}");
-        Console.WriteLine($"Header:  0x{metadata.HeaderSize:X} (aligned 0x{metadata.HeaderAlignedSize:X})");
-        Console.WriteLine($"FT blk:  0x{metadata.FileTableBlockNumber:X} x {metadata.FileTableBlockCount}");
-        Console.WriteLine($"Entries: {entries.Count}");
+        Console.WriteLine($"Kind:    {(input.IsStfsPackage ? "STFS package" : "savegame.dat")}");
 
-        foreach (StfsFileEntry entry in entries)
+        if (input.Metadata is not null)
         {
-            Console.WriteLine($"- {entry.Name} size={entry.Size} start=0x{entry.StartingBlock:X}");
+            Console.WriteLine($"Package: {input.Metadata.PackageType}");
+            Console.WriteLine($"Header:  0x{input.Metadata.HeaderSize:X} (aligned 0x{input.Metadata.HeaderAlignedSize:X})");
+            Console.WriteLine($"FT blk:  0x{input.Metadata.FileTableBlockNumber:X} x {input.Metadata.FileTableBlockCount}");
+            Console.WriteLine($"Entries: {input.Entries.Count}");
+
+            foreach (StfsFileEntry entry in input.Entries)
+            {
+                Console.WriteLine($"- {entry.Name} size={entry.Size} start=0x{entry.StartingBlock:X}");
+            }
         }
 
         Console.WriteLine();
-        Console.WriteLine($"savegame.dat: {savegame.Bytes.Length} bytes");
-        Console.WriteLine($"First block:  0x{savegame.FirstBlockOffset:X}");
-        if (probeResult.Report.LeadingPrefixHex is not null)
+        Console.WriteLine($"savegame.dat: {input.SavegameBytes.Length} bytes");
+        if (input.FirstBlockOffset is not null)
         {
-            Console.WriteLine($"Prefix:       {probeResult.Report.LeadingPrefixHex}");
+            Console.WriteLine($"First block:  0x{input.FirstBlockOffset:X}");
         }
-        Console.WriteLine($"Probe:        {(probeResult.Report.HasSuccessfulDecompression ? "success" : "no match")}");
 
-        if (probeResult.Report.HasSuccessfulDecompression)
+        if (decodeResult.ProbeResult.Report.LeadingPrefixHex is not null)
         {
-            Console.WriteLine($"Decoder:      {probeResult.Report.RecommendedEnvelope} / {probeResult.Report.RecommendedDecoder}");
+            Console.WriteLine($"Prefix:       {decodeResult.ProbeResult.Report.LeadingPrefixHex}");
+        }
+        Console.WriteLine($"Probe:        {(decodeResult.DecompressedBytes is not null ? "success" : "no match")}");
+
+        if (decodeResult.DecompressedBytes is not null)
+        {
+            Console.WriteLine($"Decoder:      {decodeResult.DecoderSummary}");
             Console.WriteLine($"Wrote         {layout.SavegameDecompressedPath}");
+            Console.WriteLine($"Wrote         {layout.ArchiveIndexJsonPath}");
+            Console.WriteLine($"Wrote         {layout.ArchiveDirectoryPath}");
         }
         else
         {
             Console.WriteLine("Decoder:      unresolved");
+            if (!string.IsNullOrWhiteSpace(decodeResult.FallbackFailure))
+            {
+                Console.WriteLine($"Fallback:     {decodeResult.FallbackFailure}");
+            }
         }
 
         Console.WriteLine();
-        Console.WriteLine($"Wrote {layout.StfsFilesJsonPath}");
+        if (input.IsStfsPackage)
+        {
+            Console.WriteLine($"Wrote {layout.StfsFilesJsonPath}");
+        }
+
         Console.WriteLine($"Wrote {layout.SavegameDatPath}");
         Console.WriteLine($"Wrote {layout.SavegameProbeJsonPath}");
         return 0;

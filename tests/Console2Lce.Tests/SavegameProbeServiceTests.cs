@@ -8,7 +8,7 @@ public sealed class SavegameProbeServiceTests
     [Fact]
     public void Probe_DetectsStoredPayloadWithPlausibleArchiveHeader()
     {
-        byte[] archive = CreateArchive(indexOffset: 0x20, fileCount: 3, totalLength: 0x40);
+        byte[] archive = CreateArchive(originalSaveVersion: 2, currentSaveVersion: 8);
         byte[] savegame = WrapWithLittleEndianEnvelope(archive);
 
         SavegameProbeResult result = new SavegameProbeService().Probe(savegame);
@@ -17,12 +17,15 @@ public sealed class SavegameProbeServiceTests
         Assert.Equal("HeaderAt0LittleEndian", result.Report.RecommendedEnvelope);
         Assert.Equal("StoredWithoutCompression", result.Report.RecommendedDecoder);
         Assert.Equal(archive, result.DecompressedBytes);
+        Assert.Contains(result.Report.Attempts, attempt => attempt.Decoder == "WindowsXpress");
+        Assert.Contains(result.Report.Attempts, attempt => attempt.Decoder == "WindowsLzmsRaw");
+        Assert.Contains(result.Report.Attempts, attempt => attempt.Decoder == "XboxLzxNativeThenRle128k128k");
     }
 
     [Fact]
     public void Probe_DetectsZlibThenRlePayloadWithPlausibleArchiveHeader()
     {
-        byte[] archive = CreateArchive(indexOffset: 0x28, fileCount: 5, totalLength: 0x60);
+        byte[] archive = CreateArchive(originalSaveVersion: 2, currentSaveVersion: 8);
         byte[] encoded = EncodeRle(archive);
         byte[] compressed = CompressZlib(encoded);
         byte[] savegame = WrapWithLittleEndianEnvelope(compressed, archive.Length);
@@ -44,7 +47,7 @@ public sealed class SavegameProbeServiceTests
         Assert.False(result.Report.HasSuccessfulDecompression);
         Assert.Null(result.DecompressedBytes);
         Assert.Contains(result.Report.Findings, finding => finding.Contains("not plausible", StringComparison.Ordinal));
-        Assert.Contains(result.Report.Findings, finding => finding.Contains("LZXRLE/XMem", StringComparison.Ordinal));
+        Assert.Contains(result.Report.Findings, finding => finding.Contains("4J archive", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -66,12 +69,32 @@ public sealed class SavegameProbeServiceTests
         return wrapped;
     }
 
-    private static byte[] CreateArchive(int indexOffset, int fileCount, int totalLength)
+    private static byte[] CreateArchive(short originalSaveVersion, short currentSaveVersion)
     {
+        const int headerOffset = 0x20;
+        const int totalLength = headerOffset + Minecraft360ArchiveParser.FileEntrySize;
         byte[] bytes = new byte[totalLength];
-        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0, 4), indexOffset);
-        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(4, 4), fileCount);
+        BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(0, 4), headerOffset);
+        BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(4, 4), 1);
+        BinaryPrimitives.WriteInt16BigEndian(bytes.AsSpan(8, 2), originalSaveVersion);
+        BinaryPrimitives.WriteInt16BigEndian(bytes.AsSpan(10, 2), currentSaveVersion);
+
+        WriteUtf16BigEndian(bytes.AsSpan(headerOffset, 128), "level.dat");
+        BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(headerOffset + 128, 4), 4);
+        BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(headerOffset + 132, 4), Minecraft360ArchiveParser.SaveFileHeaderSize);
+        BinaryPrimitives.WriteInt64BigEndian(bytes.AsSpan(headerOffset + 136, 8), 1234);
+
+        bytes[Minecraft360ArchiveParser.SaveFileHeaderSize] = 0x0A;
+        bytes[Minecraft360ArchiveParser.SaveFileHeaderSize + 1] = 0x00;
+        bytes[Minecraft360ArchiveParser.SaveFileHeaderSize + 2] = 0x00;
+        bytes[Minecraft360ArchiveParser.SaveFileHeaderSize + 3] = 0x00;
         return bytes;
+    }
+
+    private static void WriteUtf16BigEndian(Span<byte> destination, string value)
+    {
+        byte[] encoded = System.Text.Encoding.BigEndianUnicode.GetBytes(value);
+        encoded.CopyTo(destination);
     }
 
     private static byte[] EncodeRle(byte[] data)

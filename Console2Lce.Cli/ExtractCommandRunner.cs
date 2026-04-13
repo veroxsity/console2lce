@@ -1,5 +1,3 @@
-using Console2Lce;
-
 namespace Console2Lce.Cli;
 
 internal static class ExtractCommandRunner
@@ -11,14 +9,36 @@ internal static class ExtractCommandRunner
 
         Directory.CreateDirectory(outputPath);
 
-        byte[] packageBytes = File.ReadAllBytes(inputPath);
-        var reader = new StfsReader();
-        byte[] savegameBytes = reader.ReadFile(packageBytes, "savegame.dat");
-        string savegamePath = Path.Combine(outputPath, "savegame.dat");
-        File.WriteAllBytes(savegamePath, savegameBytes);
+        byte[] inputBytes = File.ReadAllBytes(inputPath);
+        SavegameInputData input = SavegameInputReader.Read(inputBytes);
+        SavegameDecodingResult decodeResult = new SavegameDecodeService().Decode(input.SavegameBytes, input.LeadingPrefixBytes);
+        var layout = new DebugArtifactLayout(outputPath);
 
-        Console.WriteLine($"Extracted savegame.dat to {savegamePath}");
-        Console.WriteLine($"Bytes: {savegameBytes.Length}");
+        File.WriteAllBytes(layout.SavegameDatPath, input.SavegameBytes);
+
+        Console.WriteLine($"Input:   {inputPath}");
+        Console.WriteLine($"Output:  {outputPath}");
+        Console.WriteLine($"Kind:    {(input.IsStfsPackage ? "STFS package" : "savegame.dat")}");
+        Console.WriteLine($"Wrote    {layout.SavegameDatPath}");
+        Console.WriteLine($"Bytes:   {input.SavegameBytes.Length}");
+
+        if (decodeResult.DecompressedBytes is null)
+        {
+            Console.WriteLine("Decode:  unresolved");
+            if (!string.IsNullOrWhiteSpace(decodeResult.FallbackFailure))
+            {
+                Console.WriteLine($"Fallback:{decodeResult.FallbackFailure}");
+            }
+
+            return 0;
+        }
+
+        Minecraft360Archive archive = ArchiveArtifactWriter.Write(layout, decodeResult.DecompressedBytes);
+        Console.WriteLine($"Decode:  {decodeResult.DecoderSummary}");
+        Console.WriteLine($"Files:   {archive.Entries.Count}");
+        Console.WriteLine($"Wrote    {layout.SavegameDecompressedPath}");
+        Console.WriteLine($"Wrote    {layout.ArchiveIndexJsonPath}");
+        Console.WriteLine($"Wrote    {layout.ArchiveDirectoryPath}");
         return 0;
     }
 }

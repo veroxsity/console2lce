@@ -33,8 +33,8 @@ internal static class CliCommandRouter
         Console.WriteLine("Xbox 360 Minecraft save tooling for inspection, extraction, and LCE conversion.");
         Console.WriteLine();
         Console.WriteLine("Usage:");
-        Console.WriteLine("  Console2Lce inspect <path-to-save.bin> --out <debug-dir>");
-        Console.WriteLine("  Console2Lce extract <path-to-save.bin> --out <extract-dir>");
+        Console.WriteLine("  Console2Lce inspect <path-to-save.bin-or-savegame.dat> --out <debug-dir>");
+        Console.WriteLine("  Console2Lce extract <path-to-save.bin-or-savegame.dat> --out <extract-dir>");
         Console.WriteLine("  Console2Lce convert <path-to-save.bin> --out <lce-output-dir>");
     }
 

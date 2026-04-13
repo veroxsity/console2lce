@@ -7,6 +7,6 @@ public sealed record SavegameProbeAttempt(
     int? OutputLength,
     string? FirstBytesHex,
     bool HasPlausibleArchiveHeader,
-    int? IndexOffset,
-    int? FileCount,
+    int? ArchiveHeaderOffset,
+    int? ArchiveFileCount,
     string? Failure);

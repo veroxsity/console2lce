@@ -9,53 +9,62 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Focus-Xbox%20360%20Saves-2A9D8F?style=flat-square" alt="Xbox 360 saves" />
   <img src="https://img.shields.io/badge/Output-LCE%20Saves-1D3557?style=flat-square" alt="LCE saves" />
-  <img src="https://img.shields.io/badge/Status-Phase%202%20Research-E76F51?style=flat-square" alt="Phase 2 Research" />
+  <img src="https://img.shields.io/badge/Status-Extraction%20Working-E9C46A?style=flat-square" alt="Extraction working" />
 </p>
 
-Console2LCE is a conversion tool for turning Minecraft Xbox 360 save `.dat` data into Minecraft Legacy Console Edition save output.
+Console2LCE is a tool for opening Minecraft Xbox 360 saves and moving them toward Minecraft Legacy Console Edition output.
 
 ## What It Does
 
-- Reads Minecraft Xbox 360 save containers stored as `.bin` STFS/XContent packages
+- Reads Minecraft Xbox 360 saves from either:
+  - STFS/XContent `.bin` packages
+  - raw `savegame.dat` files
 - Extracts the embedded `savegame.dat`
-- Investigates and validates the compressed inner save payload
-- Aims to convert the extracted world data into LCE-compatible save output
+- Decodes the inner Xbox 360 world archive
+- Extracts files such as:
+  - `level.dat`
+  - `data/map_*.dat`
+  - `players/*.dat`
+  - `r.*.*.mcr`
+- Builds the groundwork for later LCE conversion
 
 ## Project Status
 
-This project is currently in active reverse-engineering and tooling work. It is not a finished converter yet.
+This project is not a finished Xbox360-to-LCE converter yet, but the extraction path is now working on real saves.
 
 Working now:
 
 - STFS/XContent package detection for `CON `, `LIVE`, and `PIRS`
 - header-driven STFS metadata parsing
-- file table parsing and directory listing
-- `savegame.dat` extraction from a real Xbox 360 `.bin`
-- `inspect` debug output for raw STFS entries, extracted `savegame.dat`, and decompression probe results
-- candidate decompression probe support for:
-  - stored/uncompressed payloads
-  - RLE-only payloads
-  - zlib-only payloads
-  - zlib-then-RLE payloads
+- `savegame.dat` extraction from real Xbox 360 `.bin` saves
+- direct `savegame.dat` input support
+- archive parsing for the decoded 4J world container
+- extraction of the inner world tree into normal files and folders
+- `inspect` debug output for:
+  - `stfs-files.json`
+  - `savegame.dat`
+  - `savegame-probe.json`
+  - `savegame.decompressed.bin`
+  - `archive-index.json`
+  - extracted inner files under `archive/`
 
-Current blocker:
+Still in progress:
 
-- the real Xbox 360 sample does not match the Win64 zlib path
-- the current sample now shows a recovered `00000000` prefix immediately before the computed first data block and a plausible big-endian save envelope, which is consistent with Xbox 360 save endianness
-- the remaining unknown is the Xbox-native `LZXRLE` / `XMemDecompress` path, plus whether the missing 4-byte prefix should be treated as a real extraction adjustment or only as a package-level recovery heuristic
+- native decoding is not solved yet
+- the current working decode path uses the external `minecraft.exe` helper shipped with MCC ToolChest when it is available
+- final LCE save generation is still to come
 
 ## Roadmap
 
-- finish reliable Xbox 360 `savegame.dat` decompression
-- parse the decompressed inner archive and recover embedded files
+- replace the external decode fallback with a built-in implementation
 - map extracted world data into the LCE save structure
 - produce a first playable Xbox360-to-LCE conversion path
 
 ## CLI
 
 ```text
-Console2Lce inspect <path-to-save.bin> --out <debug-dir>
-Console2Lce extract <path-to-save.bin> --out <extract-dir>
+Console2Lce inspect <path-to-save.bin-or-savegame.dat> --out <debug-dir>
+Console2Lce extract <path-to-save.bin-or-savegame.dat> --out <extract-dir>
 Console2Lce convert <path-to-save.bin> --out <lce-output-dir>
 ```
 
@@ -63,23 +72,31 @@ Console2Lce convert <path-to-save.bin> --out <lce-output-dir>
 
 Writes:
 
-- `stfs-files.json`
+- `stfs-files.json` when the input is a `.bin` package
 - `savegame.dat`
 - `savegame-probe.json`
-- `savegame.decompressed.bin` when a candidate decoder succeeds
+- `savegame.decompressed.bin` when decoding succeeds
+- `archive-index.json` when decoding succeeds
+- extracted inner files under `archive/` when decoding succeeds
 
 ### `extract`
 
-Writes the raw `savegame.dat` payload extracted from the STFS package.
+Writes:
 
-## Current Output
-
-The tool currently produces debug artifacts intended to make format work repeatable:
-
-- `stfs-files.json`
 - `savegame.dat`
-- `savegame-probe.json`
-- `savegame.decompressed.bin` when a candidate decoder succeeds
+- `savegame.decompressed.bin` when decoding succeeds
+- `archive-index.json` when decoding succeeds
+- extracted inner files under `archive/` when decoding succeeds
+
+## External Decode Fallback
+
+If MCC ToolChest is installed, Console2LCE can use its bundled helper automatically:
+
+- default lookup:
+  - `%ProgramFiles(x86)%\MCCToolChest\support\minecraft.exe`
+  - `%ProgramFiles%\MCCToolChest\support\minecraft.exe`
+- override:
+  - `CONSOLE2LCE_MINECRAFT_TOOLKIT_PATH=<full-path-to-minecraft.exe>`
 
 ## Sample Progress
 
@@ -87,21 +104,25 @@ Against the current local sample in `.local_testing/`:
 
 - package type is detected as `CON`
 - `savegame.dat` is found and extracted successfully
-- extracted size is `8,748,032` bytes
-- the Phase 2 probe currently reports no valid decompression match
-- the probe now records:
-  - computed first data block offset: `0x227000`
-  - recovered prefix immediately before that block: `00000000`
-  - a plausible recovered big-endian save envelope, consistent with Xbox 360 save endianness
-- current evidence supports the theory that either:
-  - the STFS extraction is still missing the first 4 bytes of the file payload
-  - or the package-level prefix is only a recovery hint and the real remaining requirement is the native `XMem` decoder before the archive header will make sense
+- extracted `savegame.dat` size is `8,748,032` bytes
+- decoded output size is `13,855,786` bytes with the external fallback
+- the decoded archive currently yields 14 files, including:
+  - `level.dat`
+  - `data/map_0.dat`
+  - `data/map_1.dat`
+  - `data/mapDataMappings.dat`
+  - two player `.dat` files
+  - Overworld and Nether `.mcr` region files
 
 ## Notes
 
-- This repository is focused on Xbox 360 save ingestion first, not on repacking retail-valid Xbox packages.
-- The current priority is extraction, decompression, and archive inspection.
-- Full LCE conversion comes after the Xbox 360 side is proven against real save samples.
+- This repository is focused on opening and converting Xbox 360 world data, not repacking retail-valid Xbox packages.
+- The current priority is reliable built-in decoding and LCE output generation.
+- The links below are useful background for inner file formats once the archive has been decoded:
+  - https://minecraft.fandom.com/wiki/Chunk_format
+  - https://minecraft.fandom.com/wiki/Data_values
+  - https://minecraft.fandom.com/wiki/NBT_format
+  - https://minecraft-ids.grahamedgecombe.com/potion-calculator
 
 ## Related Projects
 

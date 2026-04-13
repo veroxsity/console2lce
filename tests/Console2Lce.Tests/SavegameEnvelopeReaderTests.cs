@@ -13,12 +13,13 @@ public sealed class SavegameEnvelopeReaderTests
 
         IReadOnlyList<SavegameEnvelopeCandidate> candidates = SavegameEnvelopeReader.ReadCandidates(bytes);
 
-        Assert.Equal(4, candidates.Count);
+        Assert.Equal(6, candidates.Count);
         Assert.Equal("HeaderAt0LittleEndian", candidates[0].Name);
         Assert.Equal(0x1234, candidates[0].ExpectedDecompressedSize);
         Assert.True(candidates[0].IsPlausible);
         Assert.Equal("SyntheticMissingZeroFlagBigEndian", candidates[3].Name);
         Assert.Equal(4, candidates[3].PayloadOffset);
+        Assert.Equal("SyntheticMissingZeroFlagShiftedWindowBigEndian", candidates[5].Name);
     }
 
     [Fact]
@@ -31,5 +32,7 @@ public sealed class SavegameEnvelopeReaderTests
         IReadOnlyList<SavegameEnvelopeCandidate> candidates = SavegameEnvelopeReader.ReadCandidates(bytes, prefix);
 
         Assert.Contains(candidates, candidate => candidate.Name == "RecoveredPrefixHeaderBigEndian" && candidate.IsPlausible);
+        Assert.Contains(candidates, candidate => candidate.Name == "RecoveredPrefixHeaderBigEndian" && candidate.PayloadOffset == 4 && candidate.PayloadLength == 4);
+        Assert.Contains(candidates, candidate => candidate.Name == "RecoveredPrefixShiftedWindowBigEndian" && candidate.PayloadOffset == 4 && candidate.PayloadLength == 0);
     }
 }

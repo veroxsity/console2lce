@@ -58,6 +58,22 @@ public static class SavegameEnvelopeReader
                 expectedDecompressedSize: BinaryPrimitives.ReadInt32BigEndian(reconstructedHeader.AsSpan(4, 4)),
                 payloadOffset: 4,
                 payloadLength: savegameBytes.Length - 4));
+            candidates.Add(CreateCandidate(
+                name: "RecoveredPrefixShiftedWindowLittleEndian",
+                description: "Heuristic: reconstruct the missing 4-byte prefix and assume the extracted byte window also includes 4 trailing bytes from after the file.",
+                endianness: "little",
+                compressionFlag: BinaryPrimitives.ReadInt32LittleEndian(reconstructedHeader.AsSpan(0, 4)),
+                expectedDecompressedSize: BinaryPrimitives.ReadInt32LittleEndian(reconstructedHeader.AsSpan(4, 4)),
+                payloadOffset: 4,
+                payloadLength: savegameBytes.Length - 8));
+            candidates.Add(CreateCandidate(
+                name: "RecoveredPrefixShiftedWindowBigEndian",
+                description: "Heuristic: reconstruct the missing 4-byte prefix and assume the extracted byte window also includes 4 trailing bytes from after the file.",
+                endianness: "big",
+                compressionFlag: BinaryPrimitives.ReadInt32BigEndian(reconstructedHeader.AsSpan(0, 4)),
+                expectedDecompressedSize: BinaryPrimitives.ReadInt32BigEndian(reconstructedHeader.AsSpan(4, 4)),
+                payloadOffset: 4,
+                payloadLength: savegameBytes.Length - 8));
         }
 
         if (savegameBytes.Length >= 4)
@@ -80,6 +96,22 @@ public static class SavegameEnvelopeReader
                 expectedDecompressedSize: BinaryPrimitives.ReadInt32BigEndian(savegameBytes[..4]),
                 payloadOffset: 4,
                 payloadLength: leadingPayloadLength));
+            candidates.Add(CreateCandidate(
+                name: "SyntheticMissingZeroFlagShiftedWindowLittleEndian",
+                description: "Heuristic: assume the extracted file is missing a leading zero compression flag and also includes 4 trailing bytes from after the real file window.",
+                endianness: "little",
+                compressionFlag: 0,
+                expectedDecompressedSize: BinaryPrimitives.ReadInt32LittleEndian(savegameBytes[..4]),
+                payloadOffset: 4,
+                payloadLength: savegameBytes.Length - 8));
+            candidates.Add(CreateCandidate(
+                name: "SyntheticMissingZeroFlagShiftedWindowBigEndian",
+                description: "Heuristic: assume the extracted file is missing a leading zero compression flag and also includes 4 trailing bytes from after the real file window.",
+                endianness: "big",
+                compressionFlag: 0,
+                expectedDecompressedSize: BinaryPrimitives.ReadInt32BigEndian(savegameBytes[..4]),
+                payloadOffset: 4,
+                payloadLength: savegameBytes.Length - 8));
         }
 
         return candidates;

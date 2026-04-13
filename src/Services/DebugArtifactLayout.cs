@@ -19,4 +19,6 @@ public sealed class DebugArtifactLayout
     public string SavegameDecompressedPath => Path.Combine(OutputDirectory, "savegame.decompressed.bin");
 
     public string ArchiveIndexJsonPath => Path.Combine(OutputDirectory, "archive-index.json");
+
+    public string ArchiveDirectoryPath => Path.Combine(OutputDirectory, "archive");
 }

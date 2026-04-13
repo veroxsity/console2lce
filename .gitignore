@@ -3,3 +3,4 @@ obj/
 TestResults/
 .vs/
 .local_testing/
+native/build/
