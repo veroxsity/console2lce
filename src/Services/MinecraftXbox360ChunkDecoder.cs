@@ -4,6 +4,9 @@ namespace Console2Lce;
 
 public sealed class MinecraftXbox360ChunkDecoder
 {
+    private static readonly object FailedPayloadDumpLock = new();
+    private static bool _failedPayloadDumpWritten;
+
     private static readonly Regex RegionNamePattern = new(
         @"r\.(?<x>-?\d+)\.(?<z>-?\d+)\.mcr$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -31,14 +34,97 @@ public sealed class MinecraftXbox360ChunkDecoder
         byte[] compressedBytes = regionBytes.Slice(chunk.PayloadOffset, chunk.StoredLength).ToArray();
         var attempts = new List<MinecraftXbox360ChunkDecodeAttempt>();
 
+        if (!TryDecodeChunkPayload(compressedBytes, chunk.DecompressedLength, chunk.UsesRleCompression, out byte[] decoded, out string? decoder, out string? failure, attempts))
+        {
+            return new MinecraftXbox360ChunkDecodeReport(
+                regionFileName,
+                chunk.Index,
+                chunk.X,
+                chunk.Z,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                attempts);
+        }
+
+        if (!MinecraftConsoleChunkPayloadCodec.TryReadPayloadInfo(decoded, out string payloadKind, out int? chunkX, out int? chunkZ, out bool? hasLevelWrapper))
+        {
+            attempts.Add(new MinecraftXbox360ChunkDecodeAttempt(
+                decoder ?? "Unknown",
+                false,
+                decoded.Length,
+                null,
+                null,
+                null,
+                null,
+                "Decoded bytes did not match a known console chunk payload shape."));
+
+            return new MinecraftXbox360ChunkDecodeReport(
+                regionFileName,
+                chunk.Index,
+                chunk.X,
+                chunk.Z,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                attempts);
+        }
+
+        _preferredCandidate ??= ChunkDecoderCandidate.All.FirstOrDefault(candidate => candidate.Name == decoder);
+        (chunkX, chunkZ) = ResolveChunkCoordinates(regionFileName, chunk, chunkX, chunkZ);
+        attempts.Add(new MinecraftXbox360ChunkDecodeAttempt(
+            decoder!,
+            true,
+            decoded.Length,
+            payloadKind,
+            chunkX,
+            chunkZ,
+            hasLevelWrapper,
+            null));
+
+        return new MinecraftXbox360ChunkDecodeReport(
+            regionFileName,
+            chunk.Index,
+            chunk.X,
+            chunk.Z,
+            true,
+            decoder,
+            decoded.Length,
+            payloadKind,
+            chunkX,
+            chunkZ,
+            hasLevelWrapper,
+            attempts);
+    }
+
+    public bool TryDecodeChunkPayload(
+        byte[] compressedBytes,
+        int expectedDecompressedSize,
+        bool usesRleCompression,
+        out byte[] decodedBytes,
+        out string? decoderName,
+        out string? failure,
+        List<MinecraftXbox360ChunkDecodeAttempt>? attempts = null)
+    {
+        ArgumentNullException.ThrowIfNull(compressedBytes);
+
         foreach (ChunkDecoderCandidate candidate in EnumerateCandidates())
         {
             try
             {
-                byte[] decoded = candidate.Decode(compressedBytes, chunk.DecompressedLength, chunk.UsesRleCompression);
-                if (!MinecraftConsoleChunkPayloadCodec.TryReadPayloadInfo(decoded, out string payloadKind, out int? chunkX, out int? chunkZ, out bool? hasLevelWrapper))
+                byte[] decoded = candidate.Decode(compressedBytes, expectedDecompressedSize, usesRleCompression);
+                if (!MinecraftConsoleChunkPayloadCodec.TryReadPayloadInfo(decoded, out _, out _, out _, out _))
                 {
-                    attempts.Add(new MinecraftXbox360ChunkDecodeAttempt(
+                    TryDumpFailedPayload(decoded, candidate.Name);
+                    attempts?.Add(new MinecraftXbox360ChunkDecodeAttempt(
                         candidate.Name,
                         false,
                         decoded.Length,
@@ -50,35 +136,15 @@ public sealed class MinecraftXbox360ChunkDecoder
                     continue;
                 }
 
+                decodedBytes = decoded;
+                decoderName = candidate.Name;
+                failure = null;
                 _preferredCandidate ??= candidate;
-                (chunkX, chunkZ) = ResolveChunkCoordinates(regionFileName, chunk, chunkX, chunkZ);
-                attempts.Add(new MinecraftXbox360ChunkDecodeAttempt(
-                    candidate.Name,
-                    true,
-                    decoded.Length,
-                    payloadKind,
-                    chunkX,
-                    chunkZ,
-                    hasLevelWrapper,
-                    null));
-
-                return new MinecraftXbox360ChunkDecodeReport(
-                    regionFileName,
-                    chunk.Index,
-                    chunk.X,
-                    chunk.Z,
-                    true,
-                    candidate.Name,
-                    decoded.Length,
-                    payloadKind,
-                    chunkX,
-                    chunkZ,
-                    hasLevelWrapper,
-                    attempts);
+                return true;
             }
             catch (Exception exception)
             {
-                attempts.Add(new MinecraftXbox360ChunkDecodeAttempt(
+                attempts?.Add(new MinecraftXbox360ChunkDecodeAttempt(
                     candidate.Name,
                     false,
                     null,
@@ -92,11 +158,12 @@ public sealed class MinecraftXbox360ChunkDecoder
 
         if (_externalDecoder is not null)
         {
-            if (_externalDecoder.TryDecode(compressedBytes, chunk.DecompressedLength, out byte[] decoded, out string? failure))
+            if (_externalDecoder.TryDecode(compressedBytes, expectedDecompressedSize, out byte[] decoded, out string? externalFailure))
             {
-                if (!MinecraftConsoleChunkPayloadCodec.TryReadPayloadInfo(decoded, out string payloadKind, out int? chunkX, out int? chunkZ, out bool? hasLevelWrapper))
+                if (!MinecraftConsoleChunkPayloadCodec.TryReadPayloadInfo(decoded, out _, out _, out _, out _))
                 {
-                    attempts.Add(new MinecraftXbox360ChunkDecodeAttempt(
+                    TryDumpFailedPayload(decoded, _externalDecoder.DecoderName);
+                    attempts?.Add(new MinecraftXbox360ChunkDecodeAttempt(
                         _externalDecoder.DecoderName,
                         false,
                         decoded.Length,
@@ -105,38 +172,22 @@ public sealed class MinecraftXbox360ChunkDecoder
                         null,
                         null,
                         "Decoded bytes did not match a known console chunk payload shape."));
-                }
-                else
-                {
-                    (chunkX, chunkZ) = ResolveChunkCoordinates(regionFileName, chunk, chunkX, chunkZ);
-                    attempts.Add(new MinecraftXbox360ChunkDecodeAttempt(
-                        _externalDecoder.DecoderName,
-                        true,
-                        decoded.Length,
-                        payloadKind,
-                        chunkX,
-                        chunkZ,
-                        hasLevelWrapper,
-                        null));
 
-                    return new MinecraftXbox360ChunkDecodeReport(
-                        regionFileName,
-                        chunk.Index,
-                        chunk.X,
-                        chunk.Z,
-                        true,
-                        _externalDecoder.DecoderName,
-                        decoded.Length,
-                        payloadKind,
-                        chunkX,
-                        chunkZ,
-                        hasLevelWrapper,
-                        attempts);
+                    decodedBytes = Array.Empty<byte>();
+                    decoderName = null;
+                    failure = "No Xbox 360 chunk decoder produced a recognized payload.";
+                    return false;
                 }
+
+                decodedBytes = decoded;
+                decoderName = _externalDecoder.DecoderName;
+                failure = null;
+                return true;
             }
-            else if (!string.IsNullOrWhiteSpace(failure))
+
+            if (!string.IsNullOrWhiteSpace(externalFailure))
             {
-                attempts.Add(new MinecraftXbox360ChunkDecodeAttempt(
+                attempts?.Add(new MinecraftXbox360ChunkDecodeAttempt(
                     _externalDecoder.DecoderName,
                     false,
                     null,
@@ -144,23 +195,39 @@ public sealed class MinecraftXbox360ChunkDecoder
                     null,
                     null,
                     null,
-                    failure));
+                    externalFailure));
             }
         }
 
-        return new MinecraftXbox360ChunkDecodeReport(
-            regionFileName,
-            chunk.Index,
-            chunk.X,
-            chunk.Z,
-            false,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            attempts);
+        decodedBytes = Array.Empty<byte>();
+        decoderName = null;
+        failure = "No Xbox 360 chunk decoder succeeded.";
+        return false;
+    }
+
+    private static void TryDumpFailedPayload(byte[] decoded, string decoderName)
+    {
+        string? dumpPath = Environment.GetEnvironmentVariable("CONSOLE2LCE_DUMP_FAILED_CHUNK");
+        if (string.IsNullOrWhiteSpace(dumpPath))
+        {
+            return;
+        }
+
+        lock (FailedPayloadDumpLock)
+        {
+            if (_failedPayloadDumpWritten)
+            {
+                return;
+            }
+
+            string fullPath = Path.GetFullPath(dumpPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath) ?? ".");
+            File.WriteAllBytes(fullPath, decoded);
+            File.WriteAllText(
+                fullPath + ".txt",
+                $"Decoder={decoderName}{Environment.NewLine}Length={decoded.Length}{Environment.NewLine}");
+            _failedPayloadDumpWritten = true;
+        }
     }
 
     private static (int? chunkX, int? chunkZ) ResolveChunkCoordinates(

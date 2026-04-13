@@ -30,4 +30,8 @@
     <PackageReference Include="fNbt" Version="1.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\saveconverter\LceWorldConverter.csproj" />
+  </ItemGroup>
+
 </Project>

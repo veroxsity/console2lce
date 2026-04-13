@@ -6,6 +6,43 @@ public static class SavegameRleCodec
     {
         ArgumentOutOfRangeException.ThrowIfNegative(expectedSize);
 
+        byte[] output = DecodeCore(encodedBytes, expectedSize, out int inputConsumed, out int outputProduced);
+        if (outputProduced != expectedSize)
+        {
+            throw new SavegameDatDecompressionFailedException(
+                $"RLE decode produced {outputProduced} bytes, expected {expectedSize}.");
+        }
+
+        return output;
+    }
+
+    public static bool TryDecodeExact(ReadOnlySpan<byte> encodedBytes, int expectedSize, out byte[] output)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(expectedSize);
+
+        output = DecodeCore(encodedBytes, expectedSize, out int inputConsumed, out int outputProduced);
+        return outputProduced == expectedSize && inputConsumed == encodedBytes.Length;
+    }
+
+    public static bool TryDecodePrefix(ReadOnlySpan<byte> encodedBytes, int expectedSize, out byte[] output, out int inputConsumed)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(expectedSize);
+
+        output = DecodeCore(encodedBytes, expectedSize, out inputConsumed, out int outputProduced);
+        if (outputProduced != expectedSize)
+        {
+            output = Array.Empty<byte>();
+            inputConsumed = 0;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static byte[] DecodeCore(ReadOnlySpan<byte> encodedBytes, int expectedSize, out int inputConsumed, out int outputProduced)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(expectedSize);
+
         byte[] output = new byte[expectedSize];
         int inputOffset = 0;
         int outputOffset = 0;
@@ -49,12 +86,8 @@ public static class SavegameRleCodec
             }
         }
 
-        if (outputOffset != expectedSize)
-        {
-            throw new SavegameDatDecompressionFailedException(
-                $"RLE decode produced {outputOffset} bytes, expected {expectedSize}.");
-        }
-
+        inputConsumed = inputOffset;
+        outputProduced = outputOffset;
         return output;
     }
 }

@@ -22,7 +22,7 @@ internal static class CliCommandRouter
         {
             CliCommand.Inspect => InspectCommandRunner.Run(options),
             CliCommand.Extract => ExtractCommandRunner.Run(options),
-            CliCommand.Convert => RunNotImplemented(options),
+            CliCommand.Convert => ConvertCommandRunner.Run(options),
             _ => 1,
         };
     }
@@ -38,14 +38,4 @@ internal static class CliCommandRouter
         Console.WriteLine("  Console2Lce convert <path-to-save.bin> --out <lce-output-dir>");
     }
 
-    private static int RunNotImplemented(CommandLineOptions options)
-    {
-        Console.WriteLine($"Command: {options.Command}");
-        Console.WriteLine($"Input:   {Path.GetFullPath(options.InputPath!)}");
-        Console.WriteLine($"Output:  {Path.GetFullPath(options.OutputPath!)}");
-        Console.WriteLine();
-        Console.WriteLine("Not implemented yet.");
-        Console.WriteLine("Current milestone is savegame.dat decompression and inner archive parsing.");
-        return 2;
-    }
 }
