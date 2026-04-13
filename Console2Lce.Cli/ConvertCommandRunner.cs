@@ -211,8 +211,9 @@ internal static class ConvertCommandRunner
             }
         }
 
+        byte[]? heightMap = level.Get<NbtByteArray>("HeightMap")?.Value;
         NormalizeLegacyMetadata(blocks, data);
-        RepairLikelyBrokenSkyLight(skyLight);
+        RepairLikelyBrokenSkyLight(skyLight, heightMap);
     }
 
     private static void NormalizeLegacyMetadata(byte[] blocks, byte[] data)
@@ -239,7 +240,7 @@ internal static class ConvertCommandRunner
                     3 => 2,
                     4 => 5,
                     5 => 4,
-                    _ => meta,
+                    _ => 2,
                 };
 
                 if (corrected != meta)
@@ -250,7 +251,7 @@ internal static class ConvertCommandRunner
         }
     }
 
-    private static void RepairLikelyBrokenSkyLight(byte[]? skyLight)
+    private static void RepairLikelyBrokenSkyLight(byte[]? skyLight, byte[]? heightMap)
     {
         if (skyLight is null || skyLight.Length == 0)
         {
@@ -270,6 +271,28 @@ internal static class ConvertCommandRunner
         if (brightNibbles * 20 < totalNibbles)
         {
             Array.Fill(skyLight, (byte)0xFF);
+            return;
+        }
+
+        if (heightMap is null || heightMap.Length < 256)
+        {
+            return;
+        }
+
+        // Restore daylight above each terrain column using the chunk height map.
+        // This keeps caves mostly unchanged while fixing broken dark surfaces.
+        for (int z = 0; z < 16; z++)
+        {
+            for (int x = 0; x < 16; x++)
+            {
+                int column = (x * 16) + z;
+                int topY = Math.Clamp((int)heightMap[column], 0, 127);
+                for (int y = topY; y < 128; y++)
+                {
+                    int index = ((x * 16) + z) * 128 + y;
+                    SetNibble(skyLight, index, 15);
+                }
+            }
         }
     }
 
