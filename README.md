@@ -30,7 +30,7 @@ Console2LCE is a tool for opening Minecraft Xbox 360 saves and moving them towar
 
 ## Project Status
 
-This project is not a finished Xbox360-to-LCE converter yet, but the extraction path is now working on real saves.
+This project now supports end-to-end Xbox360-to-LCE conversion on real saves, including playable `saveData.ms` output.
 
 Working now:
 
@@ -65,13 +65,19 @@ Still in progress:
 - native decoding is not solved yet
 - the current working decode path uses the external `minecraft.exe` helper shipped with MCC ToolChest when it is available
 - chunk analysis can also use MCC ToolChest's `XBOXSupport64.dll` as an oracle when it is installed, which confirms real region chunks decode to recognizable payloads
-- final LCE save generation is still to come
+
+Known conversion limitations right now:
+
+- some stair endpoints can still rotate incorrectly and form unintended corners in specific builds
+- some converted areas may load with imperfect lighting and require in-game updates/rebuild ticks to fully settle
+- conversion quality is currently best-effort for complex metadata-heavy structures
 
 ## Roadmap
 
 - replace the external decode fallback with a built-in implementation
 - map extracted world data into the LCE save structure
-- produce a first playable Xbox360-to-LCE conversion path
+- reduce remaining metadata edge cases (including stair endpoint rotation)
+- improve first-load lighting consistency without requiring manual in-game fixes
 
 ## CLI
 
