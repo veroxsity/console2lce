@@ -78,6 +78,19 @@ public sealed class MccCompactNbtChunkPayloadParser
             var level = new NbtCompound("Level");
             ParseLevelTags(level);
 
+            // Compact payload tails are noisy; prefer explicit marker reads when available.
+            int? markerX = TryReadIntTag("xPos");
+            int? markerZ = TryReadIntTag("zPos");
+            if (markerX is not null)
+            {
+                Upsert(level, new NbtInt("xPos", markerX.Value));
+            }
+
+            if (markerZ is not null)
+            {
+                Upsert(level, new NbtInt("zPos", markerZ.Value));
+            }
+
             if (!level.Contains("Blocks")
                 || !level.Contains("Data")
                 || !level.Contains("SkyLight")
@@ -171,18 +184,23 @@ public sealed class MccCompactNbtChunkPayloadParser
                 entitiesMarker = _payload.Length;
             }
 
-            byte[] blocks = DecodeSegmentByMarkers(blocksMarker, "Blocks", lastUpdateMarker, ExpectedBlocksSize);
+            byte[] blocks = TryDecodeFieldUsingBoundarySearch(blocksMarker, "Blocks", ExpectedBlocksSize)
+                ?? DecodeSegmentByMarkers(blocksMarker, "Blocks", lastUpdateMarker, ExpectedBlocksSize);
 
-            byte[] data = TryDecodeSegmentByMarkers(dataMarker, "Data", zPosMarker, ExpectedNibbleSize)
+            byte[] data = TryDecodeFieldUsingBoundarySearch(dataMarker, "Data", ExpectedNibbleSize)
+                ?? TryDecodeSegmentByMarkers(dataMarker, "Data", zPosMarker, ExpectedNibbleSize)
                 ?? new byte[ExpectedNibbleSize];
 
-            byte[] blockLight = TryDecodeSegmentByMarkers(blockLightMarker, "BlockLight", skyLightMarker, ExpectedNibbleSize)
+            byte[] blockLight = TryDecodeFieldUsingBoundarySearch(blockLightMarker, "BlockLight", ExpectedNibbleSize)
+                ?? TryDecodeSegmentByMarkers(blockLightMarker, "BlockLight", skyLightMarker, ExpectedNibbleSize)
                 ?? new byte[ExpectedNibbleSize];
 
-            byte[] skyLight = TryDecodeSegmentByMarkers(skyLightMarker, "SkyLight", heightMapMarker, ExpectedNibbleSize)
+            byte[] skyLight = TryDecodeFieldUsingBoundarySearch(skyLightMarker, "SkyLight", ExpectedNibbleSize)
+                ?? TryDecodeSegmentByMarkers(skyLightMarker, "SkyLight", heightMapMarker, ExpectedNibbleSize)
                 ?? CreateFilledArray(ExpectedNibbleSize, 0xFF);
 
-            byte[] heightMap = TryDecodeSegmentByMarkers(heightMapMarker, "HeightMap", entitiesMarker, ExpectedHeightMapSize)
+            byte[] heightMap = TryDecodeFieldUsingBoundarySearch(heightMapMarker, "HeightMap", ExpectedHeightMapSize)
+                ?? TryDecodeSegmentByMarkers(heightMapMarker, "HeightMap", entitiesMarker, ExpectedHeightMapSize)
                 ?? new byte[ExpectedHeightMapSize];
 
             int chunkX = BinaryPrimitives.ReadInt32BigEndian(_payload.AsSpan(xPosMarker + XPosTagMarker.Length, sizeof(int)));
@@ -379,6 +397,34 @@ public sealed class MccCompactNbtChunkPayloadParser
         return SavegameRleCodec.Decode(_payload.AsSpan(bodyStart, encodedLength), expectedSize);
     }
 
+    private byte[] DecodeFieldUsingBoundarySearch(int markerOffset, string fieldName, int expectedSize)
+    {
+        byte[] marker = BuildTagMarker(NbtTagType.ByteArray, fieldName);
+        int fieldBodyOffset = markerOffset + marker.Length;
+        int savedOffset = _offset;
+        try
+        {
+            _offset = fieldBodyOffset;
+            return ReadCompactOrRawByteArray(fieldName, expectedSize);
+        }
+        finally
+        {
+            _offset = savedOffset;
+        }
+    }
+
+    private byte[]? TryDecodeFieldUsingBoundarySearch(int markerOffset, string fieldName, int expectedSize)
+    {
+        try
+        {
+            return DecodeFieldUsingBoundarySearch(markerOffset, fieldName, expectedSize);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private byte[] ReadHeightMap(int markerOffset)
     {
         byte[] marker = BuildTagMarker(NbtTagType.ByteArray, "HeightMap");
@@ -414,6 +460,21 @@ public sealed class MccCompactNbtChunkPayloadParser
         }
 
         return BinaryPrimitives.ReadInt32BigEndian(_payload.AsSpan(valueOffset, sizeof(int)));
+    }
+
+    private static void Upsert(NbtCompound compound, NbtTag tag)
+    {
+        if (string.IsNullOrEmpty(tag.Name))
+        {
+            return;
+        }
+
+        if (compound.Contains(tag.Name))
+        {
+            compound.Remove(tag.Name);
+        }
+
+        compound.Add(tag);
     }
 
     private void TryWriteParseDebug(Exception exception)
@@ -610,7 +671,7 @@ public sealed class MccCompactNbtChunkPayloadParser
         }
 
         // MCC compact payloads usually store the encoded byte-count in this field.
-        // Prefer decoding exactly that slice before any heuristic boundary search.
+        // Decode within the declared slice first and consume the full declared field.
         if (declaredLength > 0 && _offset + declaredLength <= _payload.Length)
         {
             ReadOnlySpan<byte> declaredSlice = _payload.AsSpan(_offset, declaredLength);
@@ -619,6 +680,14 @@ public sealed class MccCompactNbtChunkPayloadParser
             {
                 _offset += declaredLength;
                 return declaredDecoded;
+            }
+
+            if (SavegameRleCodec.TryDecodePrefix(declaredSlice, expectedDecodedSize, out byte[] declaredPrefixDecoded, out int declaredConsumed)
+                && declaredConsumed > 0
+                && IsAcceptedBoundary(fieldName, _offset + declaredLength))
+            {
+                _offset += declaredLength;
+                return declaredPrefixDecoded;
             }
         }
 
