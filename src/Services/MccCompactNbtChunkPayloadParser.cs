@@ -609,6 +609,19 @@ public sealed class MccCompactNbtChunkPayloadParser
             return ReadSizedBytes(declaredLength);
         }
 
+        // MCC compact payloads usually store the encoded byte-count in this field.
+        // Prefer decoding exactly that slice before any heuristic boundary search.
+        if (declaredLength > 0 && _offset + declaredLength <= _payload.Length)
+        {
+            ReadOnlySpan<byte> declaredSlice = _payload.AsSpan(_offset, declaredLength);
+            if (SavegameRleCodec.TryDecodeExact(declaredSlice, expectedDecodedSize, out byte[] declaredDecoded)
+                && IsAcceptedBoundary(fieldName, _offset + declaredLength))
+            {
+                _offset += declaredLength;
+                return declaredDecoded;
+            }
+        }
+
         int bodyStart = _offset;
         if (SavegameRleCodec.TryDecodePrefix(_payload.AsSpan(bodyStart), expectedDecodedSize, out byte[] decoded, out int consumed)
             && consumed > 0)

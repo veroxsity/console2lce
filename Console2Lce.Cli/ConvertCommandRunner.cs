@@ -175,182 +175,55 @@ internal static class ConvertCommandRunner
     {
         byte[]? blocks = level.Get<NbtByteArray>("Blocks")?.Value;
         byte[]? data = level.Get<NbtByteArray>("Data")?.Value;
-        byte[]? skyLight = level.Get<NbtByteArray>("SkyLight")?.Value;
-        byte[]? blockLight = level.Get<NbtByteArray>("BlockLight")?.Value;
 
         if (blocks is null || data is null || data.Length == 0)
         {
             return;
         }
 
-        int currentScore = ScoreMetadataPlausibility(blocks, data);
-        byte[] swappedData = SwapNibblePairs(data);
-        int swappedScore = ScoreMetadataPlausibility(blocks, swappedData);
-
-        if (swappedScore <= currentScore)
-        {
-            // Keep original nibble lane ordering.
-        }
-        else
-        {
-            data.AsSpan().Clear();
-            swappedData.CopyTo(data, 0);
-
-            if (skyLight is not null && skyLight.Length == data.Length)
-            {
-                byte[] swappedSky = SwapNibblePairs(skyLight);
-                skyLight.AsSpan().Clear();
-                swappedSky.CopyTo(skyLight, 0);
-            }
-
-            if (blockLight is not null && blockLight.Length == data.Length)
-            {
-                byte[] swappedBlock = SwapNibblePairs(blockLight);
-                blockLight.AsSpan().Clear();
-                swappedBlock.CopyTo(blockLight, 0);
-            }
-        }
-
-        byte[]? heightMap = level.Get<NbtByteArray>("HeightMap")?.Value;
-        NormalizeLegacyMetadata(blocks, data);
-        RepairLikelyBrokenSkyLight(skyLight, heightMap);
+        NormalizeLikelyXboxTallGrassMetadata(blocks, data);
     }
 
-    private static void NormalizeLegacyMetadata(byte[] blocks, byte[] data)
+    private static void NormalizeLikelyXboxTallGrassMetadata(byte[] blocks, byte[] data)
     {
         int max = Math.Min(blocks.Length, 32768);
+        int id31Count = 0;
+        int id31Meta0 = 0;
+        int id31Healthy = 0;
+
         for (int index = 0; index < max; index++)
         {
-            byte id = blocks[index];
-            byte meta = GetNibble(data, index);
-
-            // In affected exports, short grass frequently appears as the dead shrub variant.
-            if (id == 31 && meta == 0)
+            if (blocks[index] != 31)
             {
-                SetNibble(data, index, 1);
                 continue;
             }
 
-            // Ladder facing can be mirrored in the faulty path; rotate wall face pairs.
-            if (id == 65)
+            id31Count++;
+            byte meta = GetNibble(data, index);
+            if (meta == 0)
             {
-                byte corrected = meta switch
-                {
-                    2 => 3,
-                    3 => 2,
-                    4 => 5,
-                    5 => 4,
-                    _ => 2,
-                };
-
-                if (corrected != meta)
-                {
-                    SetNibble(data, index, corrected);
-                }
+                id31Meta0++;
+            }
+            else if (meta is 1 or 2)
+            {
+                id31Healthy++;
             }
         }
-    }
 
-    private static void RepairLikelyBrokenSkyLight(byte[]? skyLight, byte[]? heightMap)
-    {
-        if (skyLight is null || skyLight.Length == 0)
+        // Some Xbox compact payloads surface short grass as id31/meta0.
+        // If no healthy id31 variants are present, normalize 0 -> 1 for this chunk.
+        if (id31Count == 0 || id31Meta0 == 0 || id31Healthy > 0)
         {
             return;
         }
 
-        int brightNibbles = 0;
-        int totalNibbles = skyLight.Length * 2;
-        for (int i = 0; i < skyLight.Length; i++)
-        {
-            byte packed = skyLight[i];
-            if ((packed & 0x0F) == 0x0F) brightNibbles++;
-            if (((packed >> 4) & 0x0F) == 0x0F) brightNibbles++;
-        }
-
-        // If almost no skylight is present, prefer a safe daylight default over pitch-black chunks.
-        if (brightNibbles * 20 < totalNibbles)
-        {
-            Array.Fill(skyLight, (byte)0xFF);
-            return;
-        }
-
-        if (heightMap is null || heightMap.Length < 256)
-        {
-            return;
-        }
-
-        // Restore daylight above each terrain column using the chunk height map.
-        // This keeps caves mostly unchanged while fixing broken dark surfaces.
-        for (int z = 0; z < 16; z++)
-        {
-            for (int x = 0; x < 16; x++)
-            {
-                int column = (x * 16) + z;
-                int topY = Math.Clamp((int)heightMap[column], 0, 127);
-                for (int y = topY; y < 128; y++)
-                {
-                    int index = ((x * 16) + z) * 128 + y;
-                    SetNibble(skyLight, index, 15);
-                }
-            }
-        }
-    }
-
-    private static int ScoreMetadataPlausibility(byte[] blocks, byte[] data)
-    {
-        int score = 0;
-        int tallGrass = 0;
-        int tallGrassHealthy = 0;
-        int ladders = 0;
-        int laddersValid = 0;
-
-        int max = Math.Min(blocks.Length, 32768);
         for (int index = 0; index < max; index++)
         {
-            byte id = blocks[index];
-            byte meta = GetNibble(data, index);
-
-            if (id == 31)
+            if (blocks[index] == 31 && GetNibble(data, index) == 0)
             {
-                tallGrass++;
-                if (meta is 1 or 2)
-                {
-                    tallGrassHealthy++;
-                }
-            }
-            else if (id == 65)
-            {
-                ladders++;
-                if (meta is 2 or 3 or 4 or 5)
-                {
-                    laddersValid++;
-                }
+                SetNibble(data, index, 1);
             }
         }
-
-        if (tallGrass > 0)
-        {
-            score += tallGrassHealthy * 4;
-        }
-
-        if (ladders > 0)
-        {
-            score += laddersValid * 2;
-        }
-
-        return score;
-    }
-
-    private static byte[] SwapNibblePairs(byte[] source)
-    {
-        byte[] swapped = new byte[source.Length];
-        for (int i = 0; i < source.Length; i++)
-        {
-            byte value = source[i];
-            swapped[i] = (byte)(((value & 0x0F) << 4) | ((value >> 4) & 0x0F));
-        }
-
-        return swapped;
     }
 
     private static byte GetNibble(byte[] data, int index)
