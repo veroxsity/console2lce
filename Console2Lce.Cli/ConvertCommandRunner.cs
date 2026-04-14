@@ -148,6 +148,7 @@ internal static class ConvertCommandRunner
         Console.WriteLine($"Stage [{stageName}] bed pair mismatches:    {metrics.BedPairMismatches}");
         Console.WriteLine($"Stage [{stageName}] door lower blocks:      {metrics.DoorLowerBlocks}");
         Console.WriteLine($"Stage [{stageName}] door pair mismatches:   {metrics.DoorPairMismatches}");
+        Console.WriteLine($"Stage [{stageName}] bed heads S/W/N/E:      {metrics.BedHeadsSouth}/{metrics.BedHeadsWest}/{metrics.BedHeadsNorth}/{metrics.BedHeadsEast}");
         Console.WriteLine($"Stage [{stageName}] furnace bad facing:     {metrics.FurnaceInvalidFacing}");
         Console.WriteLine($"Stage [{stageName}] torch bad facing:       {metrics.TorchInvalidFacing}");
         Console.WriteLine($"Stage [{stageName}] ladder bad facing:      {metrics.LadderInvalidFacing}");
@@ -213,7 +214,8 @@ internal static class ConvertCommandRunner
             }
             else if (id is 50 or 75 or 76)
             {
-                if (meta is < 1 or > 5)
+                // Standing torches may use 0 or 5; only treat out-of-range as invalid.
+                if (meta > 5)
                 {
                     metrics.TorchInvalidFacing++;
                 }
@@ -251,6 +253,17 @@ internal static class ConvertCommandRunner
                 metrics.BedBlocks++;
                 byte direction = (byte)(meta & 0x03);
                 bool isHead = (meta & 0x8) != 0;
+                if (isHead)
+                {
+                    switch (direction)
+                    {
+                        case 0: metrics.BedHeadsSouth++; break;
+                        case 1: metrics.BedHeadsWest++; break;
+                        case 2: metrics.BedHeadsNorth++; break;
+                        case 3: metrics.BedHeadsEast++; break;
+                    }
+                }
+
                 int y = index % 128;
                 int column = index / 128;
                 int z = column % 16;
@@ -306,6 +319,10 @@ internal static class ConvertCommandRunner
         public int BedPairMismatches;
         public int DoorLowerBlocks;
         public int DoorPairMismatches;
+        public int BedHeadsSouth;
+        public int BedHeadsWest;
+        public int BedHeadsNorth;
+        public int BedHeadsEast;
         public int FurnaceInvalidFacing;
         public int TorchInvalidFacing;
         public int LadderInvalidFacing;
@@ -322,6 +339,10 @@ internal static class ConvertCommandRunner
                 BedPairMismatches = BedPairMismatches + other.BedPairMismatches,
                 DoorLowerBlocks = DoorLowerBlocks + other.DoorLowerBlocks,
                 DoorPairMismatches = DoorPairMismatches + other.DoorPairMismatches,
+                BedHeadsSouth = BedHeadsSouth + other.BedHeadsSouth,
+                BedHeadsWest = BedHeadsWest + other.BedHeadsWest,
+                BedHeadsNorth = BedHeadsNorth + other.BedHeadsNorth,
+                BedHeadsEast = BedHeadsEast + other.BedHeadsEast,
                 FurnaceInvalidFacing = FurnaceInvalidFacing + other.FurnaceInvalidFacing,
                 TorchInvalidFacing = TorchInvalidFacing + other.TorchInvalidFacing,
                 LadderInvalidFacing = LadderInvalidFacing + other.LadderInvalidFacing,
@@ -429,8 +450,101 @@ internal static class ConvertCommandRunner
     private static void NormalizeStructuralMetadata(byte[] blocks, byte[] data)
     {
         int max = Math.Min(blocks.Length, 32768);
+        NormalizeLikelyDirectionEncodedMetadata(blocks, data, max);
         RepairDoorPairs(blocks, data, max);
         RepairBedPairs(blocks, data, max);
+        RepairStairsFacingBySupport(blocks, data, max);
+        RepairLadderAndTorchAttachments(blocks, data, max);
+    }
+
+    private static void NormalizeLikelyDirectionEncodedMetadata(byte[] blocks, byte[] data, int max)
+    {
+        for (int index = 0; index < max; index++)
+        {
+            byte id = blocks[index];
+            byte meta = GetNibble(data, index);
+
+            if (id is 61 or 62)
+            {
+                // Some source payloads appear to encode furnace facing as Direction enum 0..3.
+                // Convert Direction(south/west/north/east) to Facing(3/4/2/5).
+                byte converted = meta switch
+                {
+                    0 => 3,
+                    1 => 4,
+                    2 => 2,
+                    3 => 5,
+                    _ => meta,
+                };
+
+                if (converted != meta)
+                {
+                    SetNibble(data, index, converted);
+                }
+
+                continue;
+            }
+
+            // Stairs are handled by structure-aware repair below.
+        }
+    }
+
+    private static bool IsStairsId(byte id)
+    {
+        return id is 53 or 67 or 108 or 109 or 114 or 128 or 134 or 135 or 136 or 156 or 163 or 164;
+    }
+
+    private static void RepairStairsFacingBySupport(byte[] blocks, byte[] data, int max)
+    {
+        for (int index = 0; index < max; index++)
+        {
+            if (!IsStairsId(blocks[index]))
+            {
+                continue;
+            }
+
+            int y = index % 128;
+            int column = index / 128;
+            int z = column % 16;
+            int x = column / 16;
+
+            byte meta = GetNibble(data, index);
+            byte currentDir = (byte)(meta & 0x03);
+            int bestScore = int.MinValue;
+            byte bestDir = currentDir;
+
+            for (byte candidate = 0; candidate < 4; candidate++)
+            {
+                (int dx, int dz) = candidate switch
+                {
+                    // Legacy stair direction enum appears inverted by 180 degrees
+                    // relative to the support-vs-front heuristic vectors.
+                    0 => (-1, 0),
+                    1 => (1, 0),
+                    2 => (0, -1),
+                    3 => (0, 1),
+                    _ => (1, 0),
+                };
+
+                bool hasBehindSupport = HasAttachSupport(blocks, max, x - dx, y, z - dz);
+                bool hasFrontSupport = HasAttachSupport(blocks, max, x + dx, y, z + dz);
+
+                int score = 0;
+                if (hasBehindSupport) score += 3;
+                if (!hasFrontSupport) score += 2;
+                if (candidate == currentDir) score += 1;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestDir = candidate;
+                }
+            }
+
+            // Reset half-bits (bits 2-3) to 0 (bottom stairs) to avoid corrupted half values.
+            // Preserve only the direction, removing any invalid half-block markings.
+            SetNibble(data, index, bestDir);
+        }
     }
 
     private static void RepairDoorPairs(byte[] blocks, byte[] data, int max)
@@ -546,31 +660,229 @@ internal static class ConvertCommandRunner
 
             byte partnerMeta = GetNibble(data, partner);
 
-            byte dirIfIndexIsFoot = DirectionFromOffset(dx, dz);
-            byte dirIfPartnerIsFoot = DirectionFromOffset(-dx, -dz);
+            byte dirA = (byte)(currentMeta & 0x03);
+            byte dirB = (byte)(partnerMeta & 0x03);
+            bool aIsHead = (currentMeta & 0x8) != 0;
+            bool bIsHead = (partnerMeta & 0x8) != 0;
 
-            byte indexAsFoot = (byte)(dirIfIndexIsFoot & 0x03);
-            byte partnerAsHead = (byte)((dirIfIndexIsFoot & 0x03) | 0x8);
-            byte indexAsHead = (byte)((dirIfPartnerIsFoot & 0x03) | 0x8);
-            byte partnerAsFoot = (byte)(dirIfPartnerIsFoot & 0x03);
+            bool aCanBeFoot = DirectionMatchesOffset(dirA, dx, dz);
+            bool bCanBeFoot = DirectionMatchesOffset(dirB, -dx, -dz);
 
-            int costIndexFoot = MetaChangeCost(currentMeta, indexAsFoot) + MetaChangeCost(partnerMeta, partnerAsHead);
-            int costPartnerFoot = MetaChangeCost(currentMeta, indexAsHead) + MetaChangeCost(partnerMeta, partnerAsFoot);
-
-            if (costIndexFoot <= costPartnerFoot)
+            bool indexIsFoot;
+            if (aIsHead != bIsHead)
             {
-                SetNibble(data, index, indexAsFoot);
-                SetNibble(data, partner, partnerAsHead);
+                indexIsFoot = !aIsHead;
+            }
+            else if (aCanBeFoot != bCanBeFoot)
+            {
+                indexIsFoot = aCanBeFoot;
             }
             else
             {
-                SetNibble(data, index, indexAsHead);
-                SetNibble(data, partner, partnerAsFoot);
+                // Preserve direction bits when both part flags are ambiguous.
+                indexIsFoot = dirA == DirectionFromOffset(dx, dz);
+            }
+
+            int footToHeadDx = indexIsFoot ? dx : -dx;
+            int footToHeadDz = indexIsFoot ? dz : -dz;
+
+            byte canonicalDirection;
+            if (dirA == dirB && DirectionMatchesOffset(dirA, footToHeadDx, footToHeadDz))
+            {
+                canonicalDirection = dirA;
+            }
+            else if (indexIsFoot && aCanBeFoot)
+            {
+                canonicalDirection = dirA;
+            }
+            else if (!indexIsFoot && bCanBeFoot)
+            {
+                canonicalDirection = dirB;
+            }
+            else
+            {
+                canonicalDirection = DirectionFromOffset(footToHeadDx, footToHeadDz);
+            }
+
+            byte indexOccupiedBit = (byte)(currentMeta & 0x4);
+            byte partnerOccupiedBit = (byte)(partnerMeta & 0x4);
+
+            if (indexIsFoot)
+            {
+                SetNibble(data, index, (byte)(indexOccupiedBit | canonicalDirection));
+                SetNibble(data, partner, (byte)(partnerOccupiedBit | canonicalDirection | 0x8));
+            }
+            else
+            {
+                SetNibble(data, index, (byte)(indexOccupiedBit | canonicalDirection | 0x8));
+                SetNibble(data, partner, (byte)(partnerOccupiedBit | canonicalDirection));
             }
 
             visited[index] = true;
             visited[partner] = true;
         }
+    }
+
+    private static void RepairLadderAndTorchAttachments(byte[] blocks, byte[] data, int max)
+    {
+        for (int index = 0; index < max; index++)
+        {
+            byte id = blocks[index];
+            if (id != 65 && id != 50 && id != 75 && id != 76)
+            {
+                continue;
+            }
+
+            int y = index % 128;
+            int column = index / 128;
+            int z = column % 16;
+            int x = column / 16;
+
+            byte meta = GetNibble(data, index);
+
+            if (id == 65)
+            {
+                byte repaired = RepairLadderMeta(blocks, data, max, x, y, z, meta);
+                if (repaired != meta)
+                {
+                    SetNibble(data, index, repaired);
+                }
+
+                continue;
+            }
+
+            byte torchRepaired = RepairTorchMeta(blocks, max, x, y, z, meta);
+            if (torchRepaired != meta)
+            {
+                SetNibble(data, index, torchRepaired);
+            }
+        }
+    }
+
+    private static byte RepairLadderMeta(byte[] blocks, byte[] data, int max, int x, int y, int z, byte current)
+    {
+        bool hasNorth = HasAttachSupport(blocks, max, x, y, z - 1);
+        bool hasSouth = HasAttachSupport(blocks, max, x, y, z + 1);
+        bool hasWest = HasAttachSupport(blocks, max, x - 1, y, z);
+        bool hasEast = HasAttachSupport(blocks, max, x + 1, y, z);
+
+        static bool HasSupportForMeta(byte meta, bool north, bool south, bool west, bool east)
+        {
+            return meta switch
+            {
+                2 => south,
+                3 => north,
+                4 => east,
+                5 => west,
+                _ => false,
+            };
+        }
+
+        byte? GetNeighborLadderMeta(int ny)
+        {
+            if ((uint)ny >= 128u)
+            {
+                return null;
+            }
+
+            int neighbor = ((x * 16) + z) * 128 + ny;
+            if (neighbor < 0 || neighbor >= max || blocks[neighbor] != 65)
+            {
+                return null;
+            }
+
+            byte neighborMeta = GetNibble(data, neighbor);
+            return neighborMeta is >= 2 and <= 5 ? neighborMeta : null;
+        }
+
+        bool currentValid = current is >= 2 and <= 5;
+        if (currentValid)
+        {
+            bool currentHasSupport = HasSupportForMeta(current, hasNorth, hasSouth, hasWest, hasEast);
+
+            if (currentHasSupport)
+            {
+                return current;
+            }
+        }
+
+        // Keep ladder columns coherent: prefer the rung below/above orientation when it has support.
+        byte? belowMeta = GetNeighborLadderMeta(y - 1);
+        if (belowMeta is byte below && HasSupportForMeta(below, hasNorth, hasSouth, hasWest, hasEast))
+        {
+            return below;
+        }
+
+        byte? aboveMeta = GetNeighborLadderMeta(y + 1);
+        if (aboveMeta is byte above && HasSupportForMeta(above, hasNorth, hasSouth, hasWest, hasEast))
+        {
+            return above;
+        }
+
+        if (hasSouth) return 2;
+        if (hasNorth) return 3;
+        if (hasEast) return 4;
+        if (hasWest) return 5;
+        return (byte)(currentValid ? current : 2);
+    }
+
+    private static byte RepairTorchMeta(byte[] blocks, int max, int x, int y, int z, byte current)
+    {
+        bool hasEast = HasAttachSupport(blocks, max, x + 1, y, z);
+        bool hasWest = HasAttachSupport(blocks, max, x - 1, y, z);
+        bool hasSouth = HasAttachSupport(blocks, max, x, y, z + 1);
+        bool hasNorth = HasAttachSupport(blocks, max, x, y, z - 1);
+        bool hasFloor = HasAttachSupport(blocks, max, x, y - 1, z);
+
+        bool currentValid = current is >= 1 and <= 5;
+        if (currentValid)
+        {
+            bool currentHasSupport = current switch
+            {
+                // Wall torches point away from the supporting wall block.
+                1 => hasWest,
+                2 => hasEast,
+                3 => hasNorth,
+                4 => hasSouth,
+                5 => hasFloor,
+                _ => false,
+            };
+
+            if (currentHasSupport)
+            {
+                return current;
+            }
+        }
+
+        if (hasWest) return 1;
+        if (hasEast) return 2;
+        if (hasNorth) return 3;
+        if (hasSouth) return 4;
+        if (hasFloor) return 5;
+        return (byte)(currentValid ? current : 5);
+    }
+
+    private static bool HasAttachSupport(byte[] blocks, int max, int x, int y, int z)
+    {
+        if ((uint)x >= 16u || (uint)z >= 16u || (uint)y >= 128u)
+        {
+            return false;
+        }
+
+        int index = ((x * 16) + z) * 128 + y;
+        if (index < 0 || index >= max)
+        {
+            return false;
+        }
+
+        byte id = blocks[index];
+        if (id == 0)
+        {
+            return false;
+        }
+
+        // Ignore common non-solid/mountable blocks as support candidates.
+        return id is not (50 or 63 or 65 or 68 or 69 or 75 or 76 or 77 or 106);
     }
 
     private static byte DirectionFromOffset(int dx, int dz)
@@ -596,6 +908,18 @@ internal static class ConvertCommandRunner
         }
 
         return 0;
+    }
+
+    private static bool DirectionMatchesOffset(byte direction, int dx, int dz)
+    {
+        return direction switch
+        {
+            0 => dx == 0 && dz == 1,
+            1 => dx == -1 && dz == 0,
+            2 => dx == 0 && dz == -1,
+            3 => dx == 1 && dz == 0,
+            _ => false,
+        };
     }
 
     private static int MetaChangeCost(byte current, byte target)
