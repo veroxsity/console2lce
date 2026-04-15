@@ -22,7 +22,7 @@ internal static class CliCommandRouter
         {
             CliCommand.Inspect => InspectCommandRunner.Run(options),
             CliCommand.Extract => ExtractCommandRunner.Run(options),
-            CliCommand.Convert => ConvertCommandRunner.Run(options),
+            CliCommand.Convert => DirectConvertCommandRunner.Run(options),
             _ => 1,
         };
     }
