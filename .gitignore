@@ -4,3 +4,5 @@ TestResults/
 .vs/
 .local_testing/
 native/build/
+.RESOURCES/
+.vscode/
