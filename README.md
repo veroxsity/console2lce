@@ -81,9 +81,9 @@ This project supports end-to-end Xbox 360 to LCE conversion on real saves, inclu
 ## CLI
 
 ```text
-Console2Lce inspect <path-to-save.bin-or-savegame.dat> --out <debug-dir>
-Console2Lce extract <path-to-save.bin-or-savegame.dat> --out <extract-dir>
-Console2Lce convert <path-to-save.bin-or-savegame.dat> --out <lce-output-dir>
+Console2Lce.Cli.exe inspect <path-to-save.bin-or-savegame.dat> --out <debug-dir>
+Console2Lce.Cli.exe extract <path-to-save.bin-or-savegame.dat> --out <extract-dir>
+Console2Lce.Cli.exe convert <path-to-save.bin-or-savegame.dat> --out <lce-output-dir>
 ```
 
 ### `inspect`
