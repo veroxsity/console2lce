@@ -19,23 +19,13 @@ public sealed class SavegameDecodeService
         ReadOnlyMemory<byte> leadingPrefixBytes = default)
     {
         SavegameProbeResult probeResult = _probeService.Probe(savegameBytes, leadingPrefixBytes);
-        byte[]? decompressedBytes = probeResult.DecompressedBytes;
         string decoderSummary = probeResult.Report.HasSuccessfulDecompression
             ? $"{probeResult.Report.RecommendedEnvelope} / {probeResult.Report.RecommendedDecoder}"
             : "unresolved";
-        string? fallbackFailure = null;
-
-        if (decompressedBytes is null
-            && ExternalMinecraftToolkit.TryDecompress(savegameBytes, out byte[] externalBytes, out fallbackFailure))
-        {
-            decompressedBytes = externalBytes;
-            decoderSummary = "external minecraft.exe fallback";
-        }
 
         return new SavegameDecodingResult(
             probeResult,
-            decompressedBytes,
-            decoderSummary,
-            fallbackFailure);
+            probeResult.DecompressedBytes,
+            decoderSummary);
     }
 }

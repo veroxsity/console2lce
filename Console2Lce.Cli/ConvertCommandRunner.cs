@@ -23,11 +23,6 @@ internal static class ConvertCommandRunner
         if (decodeResult.DecompressedBytes is null)
         {
             Console.Error.WriteLine("Unable to decode savegame.dat.");
-            if (!string.IsNullOrWhiteSpace(decodeResult.FallbackFailure))
-            {
-                Console.Error.WriteLine(decodeResult.FallbackFailure);
-            }
-
             return 2;
         }
 
@@ -41,9 +36,14 @@ internal static class ConvertCommandRunner
             container.WriteToFile(container.CreateFile("level.dat"), ConvertLevelDat(levelDatBytes));
         }
 
+        Minecraft360ArchiveFileCopyResult auxiliaryCopyResult =
+            new Minecraft360ArchiveFileCopyService().CopyAuxiliaryFiles(archive, container);
+
         var regionWriterCache = new Dictionary<string, LceRegionFile>(StringComparer.OrdinalIgnoreCase);
         var chunkDecoder = new MinecraftXbox360ChunkDecoder();
+        var chunkConversionContext = new ChunkConversionContext(preserveDynamicChunkData: true);
         int totalRegionFiles = 0;
+        int skippedRegionFiles = 0;
         int totalChunksSeen = 0;
         int chunksDecoded = 0;
         int chunksLegacyNbt = 0;
@@ -62,7 +62,18 @@ internal static class ConvertCommandRunner
 
             totalRegionFiles++;
 
-            MinecraftXbox360Region region = new MinecraftXbox360RegionParser().Parse(regionBytes, fileName);
+            MinecraftXbox360Region region;
+            try
+            {
+                region = new MinecraftXbox360RegionParser().Parse(regionBytes, fileName);
+            }
+            catch (InvalidMinecraftXbox360RegionException exception)
+            {
+                skippedRegionFiles++;
+                Console.Error.WriteLine($"Skipping region '{fileName}': {exception.Message}");
+                continue;
+            }
+
             string lceRegionName = ToLceRegionEntryName(fileName);
             if (!TryParseRegionCoordinates(lceRegionName, out int regionX, out int regionZ))
             {
@@ -107,7 +118,7 @@ internal static class ConvertCommandRunner
 
                 int worldChunkX = regionX * 32 + chunk.X;
                 int worldChunkZ = regionZ * 32 + chunk.Z;
-                byte[] lceChunkNbt = ChunkConverter.ConvertChunk(level, worldChunkX, worldChunkZ);
+                byte[] lceChunkNbt = ChunkConverter.ConvertChunk(level, worldChunkX, worldChunkZ, chunkConversionContext);
 
                 NbtFile lceFile = new();
                 lceFile.LoadFromBuffer(lceChunkNbt, 0, lceChunkNbt.Length, NbtCompression.None);
@@ -128,8 +139,12 @@ internal static class ConvertCommandRunner
         Console.WriteLine($"Output:  {outputPath}");
         Console.WriteLine($"Wrote    {saveDataPath}");
         Console.WriteLine($"Files:   {archive.Entries.Count}");
+        Console.WriteLine($"Auxiliary files copied: {auxiliaryCopyResult.CopiedFiles}");
+        Console.WriteLine($"Player files copied:    {auxiliaryCopyResult.CopiedPlayerFiles}");
+        Console.WriteLine($"Primary player remapped:{auxiliaryCopyResult.RemappedPrimaryPlayerFiles}");
         Console.WriteLine($"Regions: {regionWriterCache.Count}");
         Console.WriteLine($"Region files processed: {totalRegionFiles}");
+        Console.WriteLine($"Region files skipped:   {skippedRegionFiles}");
         Console.WriteLine($"Chunks seen:            {totalChunksSeen}");
         Console.WriteLine($"Chunks decoded:         {chunksDecoded}");
         Console.WriteLine($"Chunks to legacy NBT:   {chunksLegacyNbt}");
@@ -395,7 +410,7 @@ internal static class ConvertCommandRunner
 
             // Keep the source coordinates intact, but add the LCE-specific fields that the game expects.
             // The world chunks themselves are written at their original coordinates.
-            candidate = LevelDatConverter.Convert(file.RootTag, 0, 0, 320, false);
+            candidate = LevelDatConverter.Convert(file.RootTag, 0, 0, ReadSourceXzSize(file.RootTag), false);
         }
         catch
         {
@@ -403,6 +418,13 @@ internal static class ConvertCommandRunner
         }
 
         return NormalizeLevelDatForLce(candidate);
+    }
+
+    private static int ReadSourceXzSize(NbtCompound root)
+    {
+        NbtCompound data = root.Get<NbtCompound>("Data") ?? root;
+        int xzSize = data.Get<NbtInt>("XZSize")?.Value ?? 320;
+        return xzSize > 0 ? xzSize : 320;
     }
 
     private static bool RepairLikelySwappedNibbles(NbtCompound level)
@@ -1121,13 +1143,19 @@ internal static class ConvertCommandRunner
                 generator = "default";
             }
 
+            int xzSize = data.Get<NbtInt>("XZSize")?.Value ?? 320;
+            if (xzSize <= 0)
+            {
+                xzSize = 320;
+            }
+
             int spawnY = data.Get<NbtInt>("SpawnY")?.Value ?? 64;
             spawnY = Math.Clamp(spawnY, 1, 127);
 
             Upsert(data, new NbtString("generatorName", generator));
             Upsert(data, new NbtInt("generatorVersion", generator == "flat" ? 0 : 1));
             Upsert(data, new NbtString("generatorOptions", generator == "flat" ? "2;7,2x3,2;1;" : ""));
-            Upsert(data, new NbtInt("XZSize", 320));
+            Upsert(data, new NbtInt("XZSize", xzSize));
             Upsert(data, new NbtInt("HellScale", 3));
             Upsert(data, new NbtByte("newSeaLevel", 1));
             Upsert(data, new NbtInt("version", 19133));

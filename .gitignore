@@ -1,8 +1,26 @@
+## Build outputs
 bin/
 obj/
+**/bin/
+**/obj/
 TestResults/
+**/TestResults/
+
+## IDE/user-local files
 .vs/
-.local_testing/
-native/build/
-.RESOURCES/
 .vscode/
+*.user
+*.suo
+
+## Local test worlds, extracted artifacts, and source references
+.local_testing/
+.RESOURCES/
+
+## Native/local runtime dependencies
+XnaNative.dll
+native/build/
+native/xmem_wrapper/
+
+## Scratch diagnostics
+*.csx
+*.log

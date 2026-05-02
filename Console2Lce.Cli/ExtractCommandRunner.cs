@@ -25,11 +25,6 @@ internal static class ExtractCommandRunner
         if (decodeResult.DecompressedBytes is null)
         {
             Console.WriteLine("Decode:  unresolved");
-            if (!string.IsNullOrWhiteSpace(decodeResult.FallbackFailure))
-            {
-                Console.WriteLine($"Fallback:{decodeResult.FallbackFailure}");
-            }
-
             return 0;
         }
 

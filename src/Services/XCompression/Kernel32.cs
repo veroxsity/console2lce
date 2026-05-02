@@ -1,0 +1,13 @@
+using System.Runtime.InteropServices;
+
+namespace XCompression;
+
+public static class Kernel32
+{
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr LoadLibrary(string lpFileName);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool FreeLibrary(IntPtr hModule);
+}

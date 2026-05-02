@@ -150,32 +150,45 @@ public sealed class StfsReader : IStfsReader
     private static int ReadNextBlockNumber(ReadOnlySpan<byte> packageBytes, StfsPackageMetadata metadata, int currentBlock)
     {
         int recordIndex = currentBlock % BlocksPerHashTable;
-        int primaryHashOffset = ComputeHashTableOffset(metadata, currentBlock);
-        int? secondaryHashOffset = metadata.PackageType == StfsPackageType.Con
-            ? primaryHashOffset + StfsBlockSize
-            : null;
+        int hashTableOffset = ComputeHashTableOffset(metadata, currentBlock);
 
-        HashRecord primary = ReadHashRecord(packageBytes, primaryHashOffset, recordIndex);
-        if (IsUsedHashRecord(primary))
+        if (metadata.PackageType == StfsPackageType.Con)
         {
-            return primary.NextBlock;
+            int l0BlockIndex = ComputeL0BlockIndex(packageBytes, metadata, currentBlock);
+            hashTableOffset += l0BlockIndex * StfsBlockSize;
         }
 
-        if (secondaryHashOffset.HasValue)
+        HashRecord record = ReadHashRecord(packageBytes, hashTableOffset, recordIndex);
+        if (IsUsedHashRecord(record))
         {
-            HashRecord secondary = ReadHashRecord(packageBytes, secondaryHashOffset.Value, recordIndex);
-            if (IsUsedHashRecord(secondary))
-            {
-                return secondary.NextBlock;
-            }
+            return record.NextBlock;
         }
 
-        if (primary.NextBlock == EndOfChain)
+        if (record.NextBlock == EndOfChain)
         {
             return EndOfChain;
         }
 
         throw new ArchiveEntryOutOfBoundsException($"Could not resolve next STFS block after 0x{currentBlock:X}.");
+    }
+
+    private static int ComputeL0BlockIndex(ReadOnlySpan<byte> packageBytes, StfsPackageMetadata metadata, int blockNumber)
+    {
+        // For Con (Type1) packages without L2 hash tables, TopRecord.Index selects the
+        // active L1 hash table block.  Read that L1 record to get its Index,
+        // which selects the active L0 hash table block for this bucket.
+        int controllingIndex = metadata.TopRecordIndex;
+
+        // L1 hash table block for blocks below 0x70E4 (no L2 present).
+        // SpaceBetween[0] = 0xAC for Type1.
+        int l1HashBlock = 0xAC;
+        int l1BlockOffset = metadata.HeaderAlignedSize
+            + (l1HashBlock + controllingIndex) * StfsBlockSize;
+        int l1RecordIndex = (blockNumber / BlocksPerHashTable) % BlocksPerHashTable;
+        int l1RecordByteOffset = l1BlockOffset + l1RecordIndex * HashRecordSize;
+        byte l1StatusByte = packageBytes[l1RecordByteOffset + 0x14];
+
+        return (l1StatusByte >> 6) & 1;
     }
 
     private static bool IsUsedHashRecord(HashRecord record)
@@ -242,7 +255,7 @@ public sealed class StfsReader : IStfsReader
         }
 
         int result = baseCount + logicalBlock;
-        if (logicalBlock > BlocksPerHashTable)
+        if (logicalBlock >= BlocksPerHashTable)
         {
             int higherLevelBase = (logicalBlock + 0x70E4) / 0x70E4;
             if (metadata.PackageType == StfsPackageType.Con)
@@ -251,7 +264,7 @@ public sealed class StfsReader : IStfsReader
             }
 
             result += higherLevelBase;
-            if (logicalBlock > 0x70E4)
+            if (logicalBlock >= 0x70E4)
             {
                 int topLevelBase = (logicalBlock + 0x4AF768) / 0x4AF768;
                 if (metadata.PackageType == StfsPackageType.Con)

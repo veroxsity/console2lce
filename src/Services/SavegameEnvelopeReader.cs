@@ -18,20 +18,14 @@ public static class SavegameEnvelopeReader
         {
             int payloadLength = savegameBytes.Length - 8;
 
-            candidates.Add(CreateCandidate(
-                name: "HeaderAt0LittleEndian",
-                description: "Interpret the first 8 bytes as the normal save envelope using little-endian integers.",
-                endianness: "little",
-                compressionFlag: BinaryPrimitives.ReadInt32LittleEndian(savegameBytes[..4]),
-                expectedDecompressedSize: BinaryPrimitives.ReadInt32LittleEndian(savegameBytes.Slice(4, 4)),
-                payloadOffset: 8,
-                payloadLength: payloadLength));
+            // Xbox 360 4J save envelope: [4B decompressedSize][4B compressionFlag]
+            // Both fields are big-endian on the 360 platform.
             candidates.Add(CreateCandidate(
                 name: "HeaderAt0BigEndian",
-                description: "Interpret the first 8 bytes as the normal save envelope using big-endian integers.",
+                description: "Interpret the first 8 bytes as [decompressedSize (BE)][compressionFlag (BE)].",
                 endianness: "big",
-                compressionFlag: BinaryPrimitives.ReadInt32BigEndian(savegameBytes[..4]),
-                expectedDecompressedSize: BinaryPrimitives.ReadInt32BigEndian(savegameBytes.Slice(4, 4)),
+                compressionFlag: BinaryPrimitives.ReadInt32BigEndian(savegameBytes.Slice(4, 4)),
+                expectedDecompressedSize: BinaryPrimitives.ReadInt32BigEndian(savegameBytes[..4]),
                 payloadOffset: 8,
                 payloadLength: payloadLength));
         }

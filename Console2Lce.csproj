@@ -31,6 +31,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="XnaNative.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('XnaNative.dll')" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\saveconverter\LceWorldConverter.csproj" />
   </ItemGroup>
 

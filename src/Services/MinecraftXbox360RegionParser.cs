@@ -21,6 +21,7 @@ public sealed class MinecraftXbox360RegionParser
                 $"Region '{fileName}' is too small to contain the 8 KiB header.");
         }
 
+        int paddedLength = checked(((bytes.Length + SectorBytes - 1) / SectorBytes) * SectorBytes);
         var chunks = new List<MinecraftXbox360RegionChunk>();
         for (int index = 0; index < SectorInts; index++)
         {
@@ -52,10 +53,18 @@ public sealed class MinecraftXbox360RegionParser
             int chunkAllocationBytes = checked(sectorCount * SectorBytes);
             int chunkEndOffset = checked(chunkOffset + chunkAllocationBytes);
 
-            if (chunkEndOffset > bytes.Length)
+            // Region entries are stored in sector units, but the archive may trim trailing
+            // sector padding. The game pads region files back to 4 KiB on open.
+            if (chunkEndOffset > paddedLength)
             {
                 throw new InvalidMinecraftXbox360RegionException(
                     $"Region '{fileName}' chunk slot {index} extends beyond the region length.");
+            }
+
+            if (chunkOffset + ChunkHeaderSize > bytes.Length)
+            {
+                throw new InvalidMinecraftXbox360RegionException(
+                    $"Region '{fileName}' chunk slot {index} is missing its chunk header.");
             }
 
             ReadOnlySpan<byte> chunkHeader = bytes.Slice(chunkOffset, ChunkHeaderSize);
@@ -82,6 +91,12 @@ public sealed class MinecraftXbox360RegionParser
             {
                 throw new InvalidMinecraftXbox360RegionException(
                     $"Region '{fileName}' chunk slot {index} overruns its allocated sectors.");
+            }
+
+            if (payloadEndOffset > bytes.Length)
+            {
+                throw new InvalidMinecraftXbox360RegionException(
+                    $"Region '{fileName}' chunk slot {index} is missing payload bytes.");
             }
 
             int x = index % 32;

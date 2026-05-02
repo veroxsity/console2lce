@@ -3,8 +3,10 @@ using System.IO.Compression;
 
 namespace Console2Lce;
 
-public sealed class SavegameProbeService
+public sealed class SavegameProbeService : IDisposable
 {
+    private readonly Lazy<XboxXMemDecompressService> _xmem = new(() => new XboxXMemDecompressService());
+
     public SavegameProbeResult Probe(
         ReadOnlyMemory<byte> savegameBytes,
         ReadOnlyMemory<byte> leadingPrefixBytes = default)
@@ -64,9 +66,9 @@ public sealed class SavegameProbeService
         {
             findings.Add("No candidate decompressor produced a plausible archive header.");
             findings.Add(
-                XboxLzxNativeDecoder.AvailabilityFailure is null
-                    ? "The native Xbox LZX helper is wired in, but the sample still does not decode into a plausible Xbox 360 4J archive. The remaining unknown is the exact outer save framing or decompression path before the archive header appears."
-                    : "Xbox 360 saves likely use the native LZXRLE/XMem path, but the optional native helper is not available yet.");
+                XboxXMemDecompressService.AvailabilityFailure is null
+                    ? "XMemDecompress is available but the sample still does not decode into a plausible Xbox 360 4J archive."
+                    : $"XMemDecompress is not available — cannot attempt Xbox 360 LZX decompression. {XboxXMemDecompressService.AvailabilityFailure}");
         }
 
         SavegameProbeReport report = new(
@@ -82,7 +84,7 @@ public sealed class SavegameProbeService
         return new SavegameProbeResult(report, bestOutput);
     }
 
-    private static IReadOnlyList<DecoderCandidate> GetDecoderCandidates()
+    private IReadOnlyList<DecoderCandidate> GetDecoderCandidates()
     {
         return
         [
@@ -90,13 +92,16 @@ public sealed class SavegameProbeService
                 "StoredWithoutCompression",
                 static (envelope, payload) =>
                 {
-                    if (payload.Length != envelope.ExpectedDecompressedSize)
+                    if (payload.Length < envelope.ExpectedDecompressedSize)
                     {
                         throw new SavegameDatDecompressionFailedException(
-                            $"Payload length {payload.Length} does not match expected size {envelope.ExpectedDecompressedSize}.");
+                            $"Payload length {payload.Length} is smaller than expected size {envelope.ExpectedDecompressedSize}.");
                     }
 
-                    return payload.ToArray();
+                    // STFS block alignment may produce trailing padding; truncate to expected length.
+                    byte[] decoded = new byte[envelope.ExpectedDecompressedSize];
+                    Array.Copy(payload, decoded, envelope.ExpectedDecompressedSize);
+                    return decoded;
                 }),
             new DecoderCandidate(
                 "RleOnly",
@@ -140,42 +145,85 @@ public sealed class SavegameProbeService
                 "WindowsLzmsRaw",
                 static (envelope, payload) => WindowsCompressionApi.Decompress(payload, envelope.ExpectedDecompressedSize, WindowsCompressionApi.CompressAlgorithmLzms | WindowsCompressionApi.CompressRaw)),
             new DecoderCandidate(
-                "XboxLzxNativeThenRle128k128k",
-                static (envelope, payload) => DecodeXboxLzxThenRle(payload, envelope.ExpectedDecompressedSize, 128 * 1024, 128 * 1024)),
+                "XMemLzxOnly",
+                (envelope, payload) => _xmem.Value.Decompress(payload, envelope.ExpectedDecompressedSize)),
             new DecoderCandidate(
-                "XboxLzxNativeOnly128k128k",
-                static (envelope, payload) => DecodeXboxLzxOnly(payload, envelope.ExpectedDecompressedSize, 128 * 1024, 128 * 1024)),
+                "XMemLzxThenRle",
+                (envelope, payload) => _xmem.Value.DecompressLzxRle(payload, envelope.ExpectedDecompressedSize)),
             new DecoderCandidate(
-                "XboxLzxNativeThenRle128k512k",
-                static (envelope, payload) => DecodeXboxLzxThenRle(payload, envelope.ExpectedDecompressedSize, 128 * 1024, 512 * 1024)),
+                "XMemLzxThenRleShift4",
+                (envelope, payload) =>
+                {
+                    if (payload.Length <= 4)
+                        throw new SavegameDatDecompressionFailedException("Payload too small for 4-byte shift.");
+                    return _xmem.Value.DecompressLzxRle(payload[4..], envelope.ExpectedDecompressedSize);
+                }),
             new DecoderCandidate(
-                "XboxLzxNativeThenRleShift4_128k128k",
-                static (envelope, payload) => DecodeXboxLzxThenRle(SlicePayload(payload, 4), envelope.ExpectedDecompressedSize, 128 * 1024, 128 * 1024)),
+                "InnerSizeBeStored",
+                static (envelope, payload) => DecodeInnerSizePrefixedStored(payload)),
+            new DecoderCandidate(
+                "InnerSizeBeRle",
+                static (envelope, payload) => DecodeInnerSizePrefixedRle(payload)),
+            new DecoderCandidate(
+                "InnerSizeBeXMemLzx",
+                (envelope, payload) => DecodeInnerSizePrefixedXMem(payload, rleDecode: false)),
+            new DecoderCandidate(
+                "InnerSizeBeXMemLzxThenRle",
+                (envelope, payload) => DecodeInnerSizePrefixedXMem(payload, rleDecode: true)),
         ];
     }
 
-    private static byte[] DecodeXboxLzxThenRle(byte[] payload, int expectedDecompressedSize, int windowSize, int partitionSize)
+    private static byte[] DecodeInnerSizePrefixedStored(byte[] payload)
     {
-        int intermediateBufferSize = XboxLzxNativeDecoder.GetRecommendedIntermediateBufferSize(expectedDecompressedSize);
-        byte[] lzxBytes = XboxLzxNativeDecoder.Decompress(payload, intermediateBufferSize, windowSize, partitionSize);
-        return SavegameRleCodec.Decode(lzxBytes, expectedDecompressedSize);
-    }
-
-    private static byte[] DecodeXboxLzxOnly(byte[] payload, int expectedDecompressedSize, int windowSize, int partitionSize)
-    {
-        int intermediateBufferSize = XboxLzxNativeDecoder.GetRecommendedIntermediateBufferSize(expectedDecompressedSize);
-        return XboxLzxNativeDecoder.Decompress(payload, intermediateBufferSize, windowSize, partitionSize);
-    }
-
-    private static byte[] SlicePayload(byte[] payload, int offset)
-    {
-        if (payload.Length <= offset)
+        int expectedSize = ReadInnerBigEndianSize(payload);
+        ReadOnlySpan<byte> storedBytes = payload.AsSpan(4);
+        if (storedBytes.Length < expectedSize)
         {
             throw new SavegameDatDecompressionFailedException(
-                $"Payload length {payload.Length} is too small for an additional {offset}-byte shift.");
+                $"Inner payload length {storedBytes.Length} is smaller than expected size {expectedSize}.");
         }
 
-        return payload[offset..];
+        byte[] decoded = new byte[expectedSize];
+        storedBytes[..expectedSize].CopyTo(decoded);
+        return decoded;
+    }
+
+    private static byte[] DecodeInnerSizePrefixedRle(byte[] payload)
+    {
+        int expectedSize = ReadInnerBigEndianSize(payload);
+        return SavegameRleCodec.Decode(payload.AsSpan(4), expectedSize);
+    }
+
+    private byte[] DecodeInnerSizePrefixedXMem(byte[] payload, bool rleDecode)
+    {
+        int expectedSize = ReadInnerBigEndianSize(payload);
+
+        ReadOnlySpan<byte> compressedBytes = payload.AsSpan(4);
+        if (!rleDecode)
+        {
+            return XboxXMemDecompressService.DecompressWithKnownContextVariants(compressedBytes, expectedSize);
+        }
+
+        int maxRleBytes = checked(Math.Max(expectedSize + 64 * 1024, expectedSize * 2));
+        byte[] rleBytes = XboxXMemDecompressService.DecompressUpToWithKnownContextVariants(compressedBytes, maxRleBytes);
+        return SavegameRleCodec.Decode(rleBytes, expectedSize);
+    }
+
+    private static int ReadInnerBigEndianSize(byte[] payload)
+    {
+        if (payload.Length <= 4)
+        {
+            throw new SavegameDatDecompressionFailedException("Payload is too small for an inner size prefix.");
+        }
+
+        int expectedSize = BinaryPrimitives.ReadInt32BigEndian(payload.AsSpan(0, 4));
+        if (expectedSize <= 0 || expectedSize > 256 * 1024 * 1024)
+        {
+            throw new SavegameDatDecompressionFailedException(
+                $"Inner big-endian size prefix is not plausible: {expectedSize}.");
+        }
+
+        return expectedSize;
     }
 
     private static byte[] ZlibDecompress(byte[] payload)
@@ -248,5 +296,11 @@ public sealed class SavegameProbeService
         {
             return DecodeCore(envelope, payload);
         }
+    }
+
+    public void Dispose()
+    {
+        if (_xmem.IsValueCreated)
+            _xmem.Value.Dispose();
     }
 }

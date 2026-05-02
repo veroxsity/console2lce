@@ -6,4 +6,5 @@ public sealed record StfsPackageMetadata(
     int HeaderAlignedSize,
     int BlockSeparation,
     int FileTableBlockCount,
-    int FileTableBlockNumber);
+    int FileTableBlockNumber,
+    int TopRecordIndex);

@@ -9,17 +9,17 @@ public sealed class SavegameProbeServiceTests
     public void Probe_DetectsStoredPayloadWithPlausibleArchiveHeader()
     {
         byte[] archive = CreateArchive(originalSaveVersion: 2, currentSaveVersion: 8);
-        byte[] savegame = WrapWithLittleEndianEnvelope(archive);
+        byte[] savegame = WrapWithBigEndianEnvelope(archive);
 
         SavegameProbeResult result = new SavegameProbeService().Probe(savegame);
 
         Assert.True(result.Report.HasSuccessfulDecompression);
-        Assert.Equal("HeaderAt0LittleEndian", result.Report.RecommendedEnvelope);
+        Assert.Equal("HeaderAt0BigEndian", result.Report.RecommendedEnvelope);
         Assert.Equal("StoredWithoutCompression", result.Report.RecommendedDecoder);
         Assert.Equal(archive, result.DecompressedBytes);
         Assert.Contains(result.Report.Attempts, attempt => attempt.Decoder == "WindowsXpress");
         Assert.Contains(result.Report.Attempts, attempt => attempt.Decoder == "WindowsLzmsRaw");
-        Assert.Contains(result.Report.Attempts, attempt => attempt.Decoder == "XboxLzxNativeThenRle128k128k");
+        Assert.Contains(result.Report.Attempts, attempt => attempt.Decoder == "XMemLzxThenRle");
     }
 
     [Fact]
@@ -28,7 +28,7 @@ public sealed class SavegameProbeServiceTests
         byte[] archive = CreateArchive(originalSaveVersion: 2, currentSaveVersion: 8);
         byte[] encoded = EncodeRle(archive);
         byte[] compressed = CompressZlib(encoded);
-        byte[] savegame = WrapWithLittleEndianEnvelope(compressed, archive.Length);
+        byte[] savegame = WrapWithBigEndianEnvelope(compressed, archive.Length);
 
         SavegameProbeResult result = new SavegameProbeService().Probe(savegame);
 
@@ -47,7 +47,7 @@ public sealed class SavegameProbeServiceTests
         Assert.False(result.Report.HasSuccessfulDecompression);
         Assert.Null(result.DecompressedBytes);
         Assert.Contains(result.Report.Findings, finding => finding.Contains("not plausible", StringComparison.Ordinal));
-        Assert.Contains(result.Report.Findings, finding => finding.Contains("4J archive", StringComparison.Ordinal));
+        Assert.Contains(result.Report.Findings, finding => finding.Contains("Xbox 360", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -60,11 +60,11 @@ public sealed class SavegameProbeServiceTests
         Assert.Contains(result.Report.Findings, finding => finding.Contains("smaller than the expected 8-byte save envelope", StringComparison.Ordinal));
     }
 
-    private static byte[] WrapWithLittleEndianEnvelope(byte[] payload, int? expectedSize = null)
+    private static byte[] WrapWithBigEndianEnvelope(byte[] payload, int? expectedSize = null)
     {
         byte[] wrapped = new byte[payload.Length + 8];
-        BinaryPrimitives.WriteInt32LittleEndian(wrapped.AsSpan(0, 4), 0);
-        BinaryPrimitives.WriteInt32LittleEndian(wrapped.AsSpan(4, 4), expectedSize ?? payload.Length);
+        BinaryPrimitives.WriteInt32BigEndian(wrapped.AsSpan(0, 4), expectedSize ?? payload.Length);
+        BinaryPrimitives.WriteInt32BigEndian(wrapped.AsSpan(4, 4), 0);
         payload.CopyTo(wrapped.AsSpan(8));
         return wrapped;
     }

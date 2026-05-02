@@ -8,18 +8,18 @@ public sealed class SavegameEnvelopeReaderTests
     public void ReadCandidates_IncludesNormalAndSyntheticInterpretations()
     {
         byte[] bytes = new byte[16];
-        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0, 4), 0);
-        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(4, 4), 0x1234);
+        BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(0, 4), 0x1234);
+        BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(4, 4), 0);
 
         IReadOnlyList<SavegameEnvelopeCandidate> candidates = SavegameEnvelopeReader.ReadCandidates(bytes);
 
-        Assert.Equal(6, candidates.Count);
-        Assert.Equal("HeaderAt0LittleEndian", candidates[0].Name);
+        Assert.Equal(5, candidates.Count);
+        Assert.Equal("HeaderAt0BigEndian", candidates[0].Name);
         Assert.Equal(0x1234, candidates[0].ExpectedDecompressedSize);
         Assert.True(candidates[0].IsPlausible);
-        Assert.Equal("SyntheticMissingZeroFlagBigEndian", candidates[3].Name);
-        Assert.Equal(4, candidates[3].PayloadOffset);
-        Assert.Equal("SyntheticMissingZeroFlagShiftedWindowBigEndian", candidates[5].Name);
+        Assert.Equal("SyntheticMissingZeroFlagBigEndian", candidates[2].Name);
+        Assert.Equal(4, candidates[2].PayloadOffset);
+        Assert.Equal("SyntheticMissingZeroFlagShiftedWindowBigEndian", candidates[4].Name);
     }
 
     [Fact]

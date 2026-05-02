@@ -12,16 +12,9 @@ public sealed class MinecraftXbox360ChunkDecoder
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static ChunkDecoderCandidate? _preferredCandidate;
-    private readonly IMinecraftXbox360ChunkExternalDecoder? _externalDecoder;
 
     public MinecraftXbox360ChunkDecoder()
-        : this(new MccXboxSupportChunkExternalDecoder())
     {
-    }
-
-    public MinecraftXbox360ChunkDecoder(IMinecraftXbox360ChunkExternalDecoder? externalDecoder)
-    {
-        _externalDecoder = externalDecoder;
     }
 
     public MinecraftXbox360ChunkDecodeReport DecodeSample(
@@ -156,49 +149,6 @@ public sealed class MinecraftXbox360ChunkDecoder
             }
         }
 
-        if (_externalDecoder is not null)
-        {
-            if (_externalDecoder.TryDecode(compressedBytes, expectedDecompressedSize, out byte[] decoded, out string? externalFailure))
-            {
-                if (!MinecraftConsoleChunkPayloadCodec.TryReadPayloadInfo(decoded, out _, out _, out _, out _))
-                {
-                    TryDumpFailedPayload(decoded, _externalDecoder.DecoderName);
-                    attempts?.Add(new MinecraftXbox360ChunkDecodeAttempt(
-                        _externalDecoder.DecoderName,
-                        false,
-                        decoded.Length,
-                        null,
-                        null,
-                        null,
-                        null,
-                        "Decoded bytes did not match a known console chunk payload shape."));
-
-                    decodedBytes = Array.Empty<byte>();
-                    decoderName = null;
-                    failure = "No Xbox 360 chunk decoder produced a recognized payload.";
-                    return false;
-                }
-
-                decodedBytes = decoded;
-                decoderName = _externalDecoder.DecoderName;
-                failure = null;
-                return true;
-            }
-
-            if (!string.IsNullOrWhiteSpace(externalFailure))
-            {
-                attempts?.Add(new MinecraftXbox360ChunkDecodeAttempt(
-                    _externalDecoder.DecoderName,
-                    false,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    externalFailure));
-            }
-        }
-
         decodedBytes = Array.Empty<byte>();
         decoderName = null;
         failure = "No Xbox 360 chunk decoder succeeded.";
@@ -291,36 +241,21 @@ public sealed class MinecraftXbox360ChunkDecoder
     {
         public static readonly ChunkDecoderCandidate[] All =
         [
-            new("XboxLzxThenRle_128k_128k", 128 * 1024, 128 * 1024),
-            new("XboxLzxThenRle_128k_512k", 128 * 1024, 512 * 1024),
-            new("XboxLzxThenRle_64k_128k", 64 * 1024, 128 * 1024),
-            new("XboxLzxThenRle_32k_32k", 32 * 1024, 32 * 1024),
-            new("XboxLzxThenRle_256k_256k", 256 * 1024, 256 * 1024),
+            new("XMemLzx_128k_128k"),
         ];
 
-        public ChunkDecoderCandidate(string name, int windowSize, int partitionSize)
+        public ChunkDecoderCandidate(string name)
         {
             Name = name;
-            WindowSize = windowSize;
-            PartitionSize = partitionSize;
         }
 
         public string Name { get; }
 
-        public int WindowSize { get; }
-
-        public int PartitionSize { get; }
-
         public byte[] Decode(byte[] compressedBytes, int expectedDecompressedSize, bool usesRleCompression)
         {
-            if (!usesRleCompression)
-            {
-                return XboxLzxNativeDecoder.Decompress(compressedBytes, expectedDecompressedSize, WindowSize, PartitionSize);
-            }
-
-            int intermediateBufferSize = XboxLzxNativeDecoder.GetRecommendedIntermediateBufferSize(expectedDecompressedSize);
-            byte[] rleBytes = XboxLzxNativeDecoder.Decompress(compressedBytes, intermediateBufferSize, WindowSize, PartitionSize);
-            return SavegameRleCodec.Decode(rleBytes, expectedDecompressedSize);
+            return usesRleCompression
+                ? XboxXMemDecompressService.DecompressLzxRleWithKnownContextVariants(compressedBytes, expectedDecompressedSize)
+                : XboxXMemDecompressService.DecompressWithKnownContextVariants(compressedBytes, expectedDecompressedSize);
         }
     }
 }

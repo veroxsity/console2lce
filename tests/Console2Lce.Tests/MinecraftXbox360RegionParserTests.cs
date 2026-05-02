@@ -43,6 +43,43 @@ public sealed class MinecraftXbox360RegionParserTests
     }
 
     [Fact]
+    public void Parse_AllowsFinalSectorPaddingTrimmedFromArchiveEntry()
+    {
+        byte[] bytes = BuildRegionFile(
+            chunkIndex: 0,
+            timestamp: 1,
+            sectorNumber: 2,
+            sectorCount: 1,
+            storedLengthWithFlags: 0x00000010u,
+            decompressedLength: 0x20);
+        Array.Resize(ref bytes, MinecraftXbox360RegionParser.HeaderBytes + MinecraftXbox360RegionParser.ChunkHeaderSize + 0x10);
+
+        MinecraftXbox360Region region = new MinecraftXbox360RegionParser().Parse(bytes, "r.0.0.mcr");
+
+        MinecraftXbox360RegionChunk chunk = Assert.Single(region.Chunks);
+        Assert.Equal(0x10, chunk.StoredLength);
+        Assert.Equal(MinecraftXbox360RegionParser.HeaderBytes + MinecraftXbox360RegionParser.ChunkHeaderSize, chunk.PayloadOffset);
+    }
+
+    [Fact]
+    public void Parse_RejectsTrimmedArchiveEntryWhenPayloadBytesAreMissing()
+    {
+        byte[] bytes = BuildRegionFile(
+            chunkIndex: 0,
+            timestamp: 1,
+            sectorNumber: 2,
+            sectorCount: 1,
+            storedLengthWithFlags: 0x00000010u,
+            decompressedLength: 0x20);
+        Array.Resize(ref bytes, MinecraftXbox360RegionParser.HeaderBytes + MinecraftXbox360RegionParser.ChunkHeaderSize + 0x0F);
+
+        InvalidMinecraftXbox360RegionException exception = Assert.Throws<InvalidMinecraftXbox360RegionException>(
+            () => new MinecraftXbox360RegionParser().Parse(bytes, "r.0.0.mcr"));
+
+        Assert.Contains("missing payload bytes", exception.Message);
+    }
+
+    [Fact]
     public void Parse_RejectsChunkThatOverrunsAllocatedSectors()
     {
         byte[] bytes = BuildRegionFile(

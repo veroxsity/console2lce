@@ -26,7 +26,7 @@ internal static class InspectCommandRunner
         if (decodeResult.DecompressedBytes is not null)
         {
             Minecraft360Archive archive = ArchiveArtifactWriter.Write(layout, decodeResult.DecompressedBytes);
-            WriteArchiveAnalysis(layout, archive);
+            TryWriteArchiveAnalysis(layout, archive);
         }
 
         Console.WriteLine($"Input:   {inputPath}");
@@ -71,10 +71,6 @@ internal static class InspectCommandRunner
         else
         {
             Console.WriteLine("Decoder:      unresolved");
-            if (!string.IsNullOrWhiteSpace(decodeResult.FallbackFailure))
-            {
-                Console.WriteLine($"Fallback:     {decodeResult.FallbackFailure}");
-            }
         }
 
         Console.WriteLine();
@@ -88,16 +84,36 @@ internal static class InspectCommandRunner
         return 0;
     }
 
-    private static void WriteArchiveAnalysis(DebugArtifactLayout layout, Minecraft360Archive archive)
+    private static void TryWriteArchiveAnalysis(DebugArtifactLayout layout, Minecraft360Archive archive)
     {
-        IReadOnlyList<MinecraftXbox360Region> regionAnalysis = MinecraftXbox360RegionAnalyzer.Analyze(archive);
-        File.WriteAllText(
-            layout.RegionAnalysisJsonPath,
-            JsonSerializer.Serialize(regionAnalysis, new JsonSerializerOptions { WriteIndented = true }));
+        try
+        {
+            IReadOnlyList<MinecraftXbox360Region> regionAnalysis = MinecraftXbox360RegionAnalyzer.Analyze(archive);
+            File.WriteAllText(
+                layout.RegionAnalysisJsonPath,
+                JsonSerializer.Serialize(regionAnalysis, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Console2LceException exception)
+        {
+            File.WriteAllText(layout.RegionAnalysisJsonPath, JsonSerializer.Serialize(new
+            {
+                error = exception.Message,
+            }, new JsonSerializerOptions { WriteIndented = true }));
+        }
 
-        IReadOnlyList<MinecraftXbox360ChunkDecodeReport> chunkAnalysis = MinecraftXbox360ChunkAnalysisService.Analyze(archive);
-        File.WriteAllText(
-            layout.ChunkAnalysisJsonPath,
-            JsonSerializer.Serialize(chunkAnalysis, new JsonSerializerOptions { WriteIndented = true }));
+        try
+        {
+            IReadOnlyList<MinecraftXbox360ChunkDecodeReport> chunkAnalysis = MinecraftXbox360ChunkAnalysisService.Analyze(archive);
+            File.WriteAllText(
+                layout.ChunkAnalysisJsonPath,
+                JsonSerializer.Serialize(chunkAnalysis, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Console2LceException exception)
+        {
+            File.WriteAllText(layout.ChunkAnalysisJsonPath, JsonSerializer.Serialize(new
+            {
+                error = exception.Message,
+            }, new JsonSerializerOptions { WriteIndented = true }));
+        }
     }
 }

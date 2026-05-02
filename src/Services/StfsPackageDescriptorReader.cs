@@ -18,13 +18,16 @@ public static class StfsPackageDescriptorReader
         int fileTableBlockCount = ReadInt16LittleEndian(packageBytes, VolumeDescriptorOffset + 3);
         int fileTableBlockNumber = ReadInt24LittleEndian(packageBytes, VolumeDescriptorOffset + 5);
 
+        int topRecordIndex = (blockSeparation >> 1) & 1;
+
         return new StfsPackageMetadata(
             packageType,
             headerSize,
             headerAlignedSize,
             blockSeparation,
             fileTableBlockCount,
-            fileTableBlockNumber);
+            fileTableBlockNumber,
+            topRecordIndex);
     }
 
     private static void EnsureLength(ReadOnlySpan<byte> bytes, int minimumLength)

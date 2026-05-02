@@ -35,7 +35,7 @@ internal static class CliCommandRouter
         Console.WriteLine("Usage:");
         Console.WriteLine("  Console2Lce inspect <path-to-save.bin-or-savegame.dat> --out <debug-dir>");
         Console.WriteLine("  Console2Lce extract <path-to-save.bin-or-savegame.dat> --out <extract-dir>");
-        Console.WriteLine("  Console2Lce convert <path-to-save.bin> --out <lce-output-dir>");
+        Console.WriteLine("  Console2Lce convert <path-to-save.bin-or-savegame.dat> --out <lce-output-dir>");
     }
 
 }

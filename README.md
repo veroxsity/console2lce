@@ -12,13 +12,13 @@
   <img src="https://img.shields.io/badge/Status-Extraction%20Working-E9C46A?style=flat-square" alt="Extraction working" />
 </p>
 
-Console2LCE is a tool for opening Minecraft Xbox 360 saves and moving them toward Minecraft Legacy Console Edition output.
+Console2LCE is a tool designed for reading Minecraft Xbox 360 saves and converting them to the Minecraft Legacy Console Edition format.
 
 ## What It Does
 
-- Reads Minecraft Xbox 360 saves from either:
+- Reads Minecraft Xbox 360 saves from:
   - STFS/XContent `.bin` packages
-  - raw `savegame.dat` files
+  - Raw `savegame.dat` files
 - Extracts the embedded `savegame.dat`
 - Decodes the inner Xbox 360 world archive
 - Extracts files such as:
@@ -26,31 +26,30 @@ Console2LCE is a tool for opening Minecraft Xbox 360 saves and moving them towar
   - `data/map_*.dat`
   - `players/*.dat`
   - `r.*.*.mcr`
-- Builds the groundwork for later LCE conversion
+- Writes converted LCE `saveData.ms` output
 
 ## Project Status
 
-This project now supports end-to-end Xbox360-to-LCE conversion on real saves, including playable `saveData.ms` output.
+This project supports end-to-end Xbox 360 to LCE conversion on real saves, including playable `saveData.ms` output.
 
-Working now:
+**Currently Working:**
 
 - STFS/XContent package detection for `CON `, `LIVE`, and `PIRS`
-- header-driven STFS metadata parsing
+- Header-driven STFS metadata parsing
 - `savegame.dat` extraction from real Xbox 360 `.bin` saves
-- direct `savegame.dat` input support
-- archive parsing for the decoded 4J world container
-- extraction of the inner world tree into normal files and folders
-- source-backed Xbox 360 region file parsing for `.mcr` metadata:
-  - chunk table offsets
-  - timestamps
-  - per-chunk stored length and decompressed length
+- Direct `savegame.dat` input support
+- Archive parsing for the decoded 4J world container
+- Extraction of the inner world tree into normal files and folders
+- Source-backed Xbox 360 region file parsing for `.mcr` metadata:
+  - Chunk table offsets
+  - Timestamps
+  - Per-chunk stored length and decompressed length
   - RLE flag detection
-- first-pass Xbox chunk decode analysis:
-  - native LZX candidate attempts
-  - optional MCC ToolChest `XBOXSupport64.dll` oracle fallback for chunk payloads
-  - payload-shape detection
-  - sample chunk coordinate extraction per region
-- `inspect` debug output for:
+- Built-in XMem/LZX savegame and chunk decoding through XNA native compression
+- Conversion of decoded Xbox 360 region chunks into LCE region files
+- Preservation of auxiliary archive files such as maps and player data
+- Remapping of the first Xbox player file to the Windows64 host player slot
+- Outputs `inspect` debug information for:
   - `stfs-files.json`
   - `savegame.dat`
   - `savegame-probe.json`
@@ -58,33 +57,33 @@ Working now:
   - `archive-index.json`
   - `region-analysis.json`
   - `chunk-analysis.json`
-  - extracted inner files under `archive/`
+  - Extracted inner files under `archive/`
 
-Still in progress:
+**In Progress:**
 
-- native decoding is not solved yet
-- the current working decode path uses the external `minecraft.exe` helper shipped with MCC ToolChest when it is available
-- chunk analysis can also use MCC ToolChest's `XBOXSupport64.dll` as an oracle when it is installed, which confirms real region chunks decode to recognizable payloads
+- Mashup/template-pack world metadata edge cases
+- Remaining block metadata repairs for some structures
+- First-load lighting consistency
 
-Known conversion limitations right now:
+**Known Limitations:**
 
-- some stair endpoints can still rotate incorrectly and form unintended corners in specific builds
-- some converted areas may load with imperfect lighting and require in-game updates/rebuild ticks to fully settle
-- conversion quality is currently best-effort for complex metadata-heavy structures
+- Some mashup packs may trigger fallback world generation in the target.
+- Some stair endpoints can rotate incorrectly and form unintended corners in specific builds.
+- Some converted areas may load with imperfect lighting and require in-game updates or rebuild ticks to fully settle.
+- Conversion quality is currently best-effort for complex metadata-heavy structures.
 
 ## Roadmap
 
-- replace the external decode fallback with a built-in implementation
-- map extracted world data into the LCE save structure
-- reduce remaining metadata edge cases (including stair endpoint rotation)
-- improve first-load lighting consistency without requiring manual in-game fixes
+- Improve mashup/template-pack metadata handling
+- Reduce remaining metadata edge cases (including stair endpoint rotation)
+- Improve first-load lighting consistency without requiring manual in-game fixes
 
 ## CLI
 
 ```text
 Console2Lce inspect <path-to-save.bin-or-savegame.dat> --out <debug-dir>
 Console2Lce extract <path-to-save.bin-or-savegame.dat> --out <extract-dir>
-Console2Lce convert <path-to-save.bin> --out <lce-output-dir>
+Console2Lce convert <path-to-save.bin-or-savegame.dat> --out <lce-output-dir>
 ```
 
 ### `inspect`
@@ -98,8 +97,7 @@ Writes:
 - `archive-index.json` when decoding succeeds
 - `region-analysis.json` when decoding succeeds
 - `chunk-analysis.json` when decoding succeeds
-- extracted inner files under `archive/` when decoding succeeds
-- `chunk-analysis.json` now records decoded payload lengths so built-in failures can be compared directly against MCC oracle results
+- Extracted inner files under `archive/` when decoding succeeds
 
 ### `extract`
 
@@ -108,49 +106,12 @@ Writes:
 - `savegame.dat`
 - `savegame.decompressed.bin` when decoding succeeds
 - `archive-index.json` when decoding succeeds
-- extracted inner files under `archive/` when decoding succeeds
-
-## External Decode Fallback
-
-If MCC ToolChest is installed, Console2LCE can use its bundled helper automatically:
-
-- default lookup:
-  - `%ProgramFiles(x86)%\MCCToolChest\support\minecraft.exe`
-  - `%ProgramFiles%\MCCToolChest\support\minecraft.exe`
-- override:
-  - `CONSOLE2LCE_MINECRAFT_TOOLKIT_PATH=<full-path-to-minecraft.exe>`
-
-For chunk-level analysis, Console2LCE can also use MCC ToolChest's `XBOXSupport64.dll`:
-
-- default lookup:
-  - `%ProgramFiles(x86)%\MCCToolChest\XBOXSupport64.dll`
-  - `%ProgramFiles%\MCCToolChest\XBOXSupport64.dll`
-- override:
-  - `CONSOLE2LCE_XBOX_SUPPORT_PATH=<full-path-to-XBOXSupport64.dll>`
-
-## Sample Progress
-
-Against the current local sample in `.local_testing/`:
-
-- package type is detected as `CON`
-- `savegame.dat` is found and extracted successfully
-- extracted `savegame.dat` size is `8,748,032` bytes
-- decoded output size is `13,855,786` bytes with the external fallback
-- the decoded archive currently yields 14 files, including:
-  - `level.dat`
-  - `data/map_0.dat`
-  - `data/map_1.dat`
-  - `data/mapDataMappings.dat`
-  - two player `.dat` files
-  - Overworld and Nether `.mcr` region files
-- `inspect` now also parses the extracted `.mcr` metadata so chunk tables and Xbox chunk headers can be inspected without guessing
-- `inspect` now also attempts a first sample chunk decode per region so chunk payload work can be validated against real data
-- on the current sample, MCC ToolChest's chunk decoder resolves sampled region chunks into a recognizable compact NBT-like payload shape, which narrows the remaining built-in decoder work to the Xbox chunk compression step rather than the region/archive model
+- Extracted inner files under `archive/` when decoding succeeds
 
 ## Notes
 
 - This repository is focused on opening and converting Xbox 360 world data, not repacking retail-valid Xbox packages.
-- The current priority is reliable built-in decoding and LCE output generation.
+- The converter uses XNA native compression for Xbox XMem/LZX streams. If XNA is not installed, place a compatible `XnaNative.dll` next to the executable.
 - The links below are useful background for inner file formats once the archive has been decoded:
   - https://minecraft.fandom.com/wiki/Chunk_format
   - https://minecraft.fandom.com/wiki/Data_values
